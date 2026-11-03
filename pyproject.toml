@@ -1,0 +1,20 @@
+[build-system]
+requires = ["setuptools>=61.0"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "claimstones"
+version = "0.0.1"
+description = "Claimstones: an open-source protocol and software project for work-landed tokens on existing proof-of-work blockchains, beginning with Bitcoin."
+readme = "README.md"
+requires-python = ">=3.10"
+dependencies = ["numpy", "lmdb"]
+
+[project.scripts]
+claimstones-cli = "claimstones.cli.rpc_cli:main"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
