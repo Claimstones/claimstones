@@ -54,7 +54,8 @@ if __package__ in (None, ""):
         os.path.abspath(__file__)))))
 from claimstones.bitcoin.txparse import Block, Tx, parse_block
 from claimstones.lineage.walker import (Rpc, RpcError, RpcMethodMissing,
-                                       resolve_rpc_auth, subsidy_sats)
+                                       resolve_rpc_auth,
+                                       resolve_rpc_cookie_path, subsidy_sats)
 from claimstones.protocol.codec import ACTIVATION_HEIGHT, MAGIC, decipher
 
 PLAIN = 0xFFFFFFFF  # run height meaning "landed already; no latent value"
@@ -724,7 +725,9 @@ def main() -> int:
     args = ap.parse_args()
 
     auth = resolve_rpc_auth(args.no_auth, args.rpc_user, args.rpc_pass, args.rpc_cookie)
-    rpc = Rpc(args.rpc_url, auth)
+    rpc = Rpc(args.rpc_url, auth,
+              cookie_path=resolve_rpc_cookie_path(args.no_auth, args.rpc_user,
+                                                  args.rpc_cookie))
     tip = wait_for_rpc(lambda: rpc("getblockchaininfo"), "reading the node tip",
                        wait_max=args.rpc_wait_max)["blocks"]
     total_txs = int(wait_for_rpc(lambda: rpc("getchaintxstats"),

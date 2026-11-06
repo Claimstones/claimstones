@@ -152,15 +152,37 @@ class Rpc:
     """
 
     def __init__(self, url: str, auth_header: str | None,
-                 wallet: str | None = None):
+                 wallet: str | None = None, cookie_path: str | None = None):
         self.url = url.rstrip("/")
         self.wallet_url = (self.url + "/wallet/" + wallet) if wallet else None
         self.headers = {"Content-Type": "application/json"}
         if auth_header:
             self.headers["Authorization"] = auth_header
+        # Where the auth header came from, when it came from a cookie file.
+        # Core rotates .cookie on every start, so a long-lived client's header
+        # goes stale across a node restart; a 401 is then a cue to re-read the
+        # file, not a misconfiguration. Daemons pass this; one-shot tools
+        # need not bother.
+        self.cookie_path = cookie_path
         self.calls = 0
         self._calls_lock = threading.Lock()  # calls may be shared across
                                              # the walker's prefetch pool
+
+    def _refresh_cookie(self) -> bool:
+        """Re-read the cookie file after a 401. True means the credentials
+        changed (node restarted; retry the call), False means they did not
+        or there is no cookie file to consult (a real refusal)."""
+        if not self.cookie_path:
+            return False
+        try:
+            with open(self.cookie_path, encoding="utf-8") as f:
+                header = basic_auth_header(f.read().strip())
+        except OSError:
+            return False
+        if self.headers.get("Authorization") == header:
+            return False
+        self.headers["Authorization"] = header
+        return True
 
     def __call__(self, method: str, *params, timeout: int = 120,
                  wallet: bool = False):
@@ -175,6 +197,8 @@ class Rpc:
                 break
             except urllib.error.HTTPError as e:
                 if e.code == 401:
+                    if attempt < 2 and self._refresh_cookie():
+                        continue
                     raise RuntimeError(
                         "RPC authentication failed (HTTP 401) — supply "
                         "--rpc-user/--rpc-pass or --rpc-cookie PATH") \
@@ -231,6 +255,8 @@ class Rpc:
                 break
             except urllib.error.HTTPError as e:
                 if e.code == 401:
+                    if attempt < 2 and self._refresh_cookie():
+                        continue
                     raise RuntimeError("RPC authentication failed (HTTP 401)") from None
                 raw = e.read()
                 break
@@ -287,6 +313,18 @@ def resolve_rpc_auth(no_auth: bool, rpc_user: str | None,
     # No credentials found: try unauthenticated (Pynode case); a Core
     # backend will answer 401 with a clear message.
     return None
+
+
+def resolve_rpc_cookie_path(no_auth: bool, rpc_user: str | None,
+                            rpc_cookie: str | None) -> str | None:
+    """The cookie file resolve_rpc_auth() read, when it read one — the path a
+    long-lived client gives Rpc(cookie_path=...) so a 401 after a node restart
+    re-reads the rotated cookie instead of ending the run. None when auth does
+    not come from a cookie file."""
+    if no_auth or rpc_user:
+        return None
+    cookie = rpc_cookie or default_cookie_path()
+    return cookie if os.path.exists(cookie) else None
 
 
 # Coinbase transaction of block 100,000 — the txindex availability probe.

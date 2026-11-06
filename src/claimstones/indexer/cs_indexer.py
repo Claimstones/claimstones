@@ -51,7 +51,8 @@ if __package__ in (None, ""):
 from claimstones.indexer.birth import (BirthIndexer, RpcBlocks, fmt,
                                        wait_for_rpc, write_status)
 from claimstones.indexer.store_lmdb import LmdbBirthStore
-from claimstones.lineage.walker import Rpc, resolve_rpc_auth
+from claimstones.lineage.walker import (Rpc, resolve_rpc_auth,
+                                        resolve_rpc_cookie_path)
 
 
 def hash_key(height: int) -> str:
@@ -217,7 +218,9 @@ def main() -> int:
 
     auth = resolve_rpc_auth(args.no_auth, args.rpc_user, args.rpc_pass,
                             args.rpc_cookie)
-    rpc = Rpc(args.rpc_url, auth)
+    rpc = Rpc(args.rpc_url, auth,
+              cookie_path=resolve_rpc_cookie_path(args.no_auth, args.rpc_user,
+                                                  args.rpc_cookie))
 
     def call(method, *a):
         return wait_for_rpc(lambda: rpc(method, *a), f"calling {method}",

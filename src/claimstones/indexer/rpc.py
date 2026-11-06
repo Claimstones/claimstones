@@ -60,6 +60,7 @@ from claimstones.indexer.birth import PLAIN, Run
 from claimstones.indexer.store_lmdb import LmdbBirthStore
 from claimstones.lineage.walker import (RETARGET_PERIOD, Rpc, RpcError,
                                         WorkTable, resolve_rpc_auth,
+                                        resolve_rpc_cookie_path,
                                         seeds_from_work, work_scaled)
 from claimstones.protocol.codec import ACTIVATION_HEIGHT
 
@@ -362,7 +363,9 @@ def main() -> int:
     if args.node_url:
         auth = resolve_rpc_auth(False, args.node_user, args.node_pass,
                                 args.node_cookie)
-        node = Rpc(args.node_url, auth)
+        node = Rpc(args.node_url, auth,
+                   cookie_path=resolve_rpc_cookie_path(False, args.node_user,
+                                                       args.node_cookie))
     queries = IndexQueries(store, node,
                            NbitsCache(os.path.join(beside, "nbits.json")))
 
