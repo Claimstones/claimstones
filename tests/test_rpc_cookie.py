@@ -14,7 +14,9 @@ from http.server import BaseHTTPRequestHandler, HTTPServer
 import pytest
 
 from claimstones.indexer.birth import transient_rpc
-from claimstones.lineage.walker import Rpc, RpcCookieWait, basic_auth_header
+from claimstones.lineage.walker import (Rpc, RpcCookieWait, basic_auth_header,
+                                        resolve_rpc_auth,
+                                        resolve_rpc_cookie_path)
 
 expected = {"cred": None}      # what the fake node currently accepts
 
@@ -111,6 +113,27 @@ def test_missing_cookie_file_waits_not_dies(node):
     cookie.unlink()
     with pytest.raises(RpcCookieWait):
         rpc("echo", 6)
+
+
+def test_daemon_starting_before_the_cookie_exists(node, tmp_path):
+    # Boot race: systemd starts the daemon and the node together, and the
+    # daemon can resolve auth before the node has written .cookie. The
+    # resolvers must neither exit nor drop the path (both happened on
+    # cs-index's first reboot, 2026-11-08); the client starts without
+    # credentials, waits through the 401, and heals once the file lands.
+    rpc, cookie = node
+    missing = tmp_path / "not-written-yet" / "rpc.cookie"
+    assert resolve_rpc_auth(False, None, None, str(missing)) is None
+    assert resolve_rpc_cookie_path(False, None, str(missing)) == str(missing)
+
+    young = Rpc(rpc.url, None, cookie_path=str(cookie))
+    expected["cred"] = "__cookie__:boot"
+    cookie.unlink()                       # node has not written it yet
+    with pytest.raises(RpcCookieWait) as e:
+        young("echo", 8)
+    assert transient_rpc(e.value)
+    rotate(cookie, "__cookie__:boot")     # node finishes starting
+    assert young("echo", 9) == [9]
 
 
 def test_no_cookie_path_still_fatal(node):

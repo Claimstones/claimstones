@@ -332,7 +332,15 @@ def resolve_rpc_auth(no_auth: bool, rpc_user: str | None,
         with open(cookie, encoding="utf-8") as f:
             return basic_auth_header(f.read().strip())
     if rpc_cookie:
-        sys.exit(f"error: cookie file not found: {rpc_cookie}")
+        # An explicit --rpc-cookie names a file the node WILL write, not
+        # one that must exist this instant: at boot systemd starts the
+        # daemon and the node together, and the daemon can win the race
+        # (cs-index, 2026-11-08). Start unauthenticated; the first 401
+        # re-reads the file via Rpc(cookie_path=...), waiting it out if
+        # it is still not there.
+        warn(f"cookie file not found yet: {rpc_cookie} — starting "
+             "unauthenticated, will re-read it on the first 401")
+        return None
     # No credentials found: try unauthenticated (Pynode case); a Core
     # backend will answer 401 with a clear message.
     return None
@@ -346,7 +354,12 @@ def resolve_rpc_cookie_path(no_auth: bool, rpc_user: str | None,
     not come from a cookie file."""
     if no_auth or rpc_user:
         return None
-    cookie = rpc_cookie or default_cookie_path()
+    if rpc_cookie:
+        # Explicit path: keep it even while the file is absent — losing it
+        # here is what turned a boot race into a fatal 401 (the client
+        # could never re-read the cookie it was told about).
+        return rpc_cookie
+    cookie = default_cookie_path()
     return cookie if os.path.exists(cookie) else None
 
 
