@@ -143,6 +143,19 @@ class RpcMethodMissing(RpcError):
     """The backend does not implement this RPC method at all."""
 
 
+class RpcCookieWait(RuntimeError):
+    """A 401 that the cookie file cannot explain *yet*.
+
+    Across a node restart there is a window where the HTTP port already
+    answers 401 but the new .cookie is not on disk: missing after a clean
+    shutdown (Core deletes it), or still the old one after a crash (Core
+    never got to). Either way the right move for a cookie-backed client
+    is to wait and re-read, not to die — wait_for_rpc treats this as
+    transient and the next attempt re-reads the file. A client without a
+    cookie path keeps the fatal RuntimeError: its credentials are fixed,
+    so a 401 really is a refusal."""
+
+
 class Rpc:
     """Thin JSON-RPC client for Bitcoin Core or Pynode.
 
@@ -199,6 +212,11 @@ class Rpc:
                 if e.code == 401:
                     if attempt < 2 and self._refresh_cookie():
                         continue
+                    if self.cookie_path:
+                        raise RpcCookieWait(
+                            f"RPC 401 and the cookie at {self.cookie_path} "
+                            "is missing or unchanged — node restarting? "
+                            "waiting for the new cookie") from None
                     raise RuntimeError(
                         "RPC authentication failed (HTTP 401) — supply "
                         "--rpc-user/--rpc-pass or --rpc-cookie PATH") \
@@ -257,6 +275,11 @@ class Rpc:
                 if e.code == 401:
                     if attempt < 2 and self._refresh_cookie():
                         continue
+                    if self.cookie_path:
+                        raise RpcCookieWait(
+                            f"RPC 401 and the cookie at {self.cookie_path} "
+                            "is missing or unchanged — node restarting? "
+                            "waiting for the new cookie") from None
                     raise RuntimeError("RPC authentication failed (HTTP 401)") from None
                 raw = e.read()
                 break

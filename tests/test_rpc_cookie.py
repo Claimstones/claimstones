@@ -13,7 +13,8 @@ from http.server import BaseHTTPRequestHandler, HTTPServer
 
 import pytest
 
-from claimstones.lineage.walker import Rpc, basic_auth_header
+from claimstones.indexer.birth import transient_rpc
+from claimstones.lineage.walker import Rpc, RpcCookieWait, basic_auth_header
 
 expected = {"cred": None}      # what the fake node currently accepts
 
@@ -76,17 +77,47 @@ def test_batch_survives_rotation(node):
     assert rpc.batch([("echo", 4), ("echo", 5)]) == [[4], [5]]
 
 
-def test_unexplained_401_still_fatal(node):
+def test_unexplained_401_waits_not_dies(node):
+    # The node wants credentials the cookie file does not hold yet. After
+    # a crash the stale cookie sits on disk while the new node starts, so
+    # this is indistinguishable from a restart in progress: the client
+    # must raise the *waitable* error, which transient_rpc lets
+    # wait_for_rpc retry until the new cookie lands (2026-11-08, cs-index:
+    # systemd restarts bitcoind fast enough to hit this window every time).
     rpc, cookie = node
-    # The node wants credentials the cookie file does not hold: re-reading
-    # changes nothing, so this is a real refusal and must still raise.
     expected["cred"] = "__cookie__:other"
-    with pytest.raises(RuntimeError, match="authentication failed"):
+    with pytest.raises(RpcCookieWait) as e:
+        rpc("echo", 6)
+    assert transient_rpc(e.value)
+    # the node finally writes its cookie: the next attempt heals in place,
+    # which is exactly the loop wait_for_rpc drives
+    rotate(cookie, "__cookie__:other")
+    assert rpc("echo", 6) == [6]
+
+
+def test_batch_unexplained_401_waits_not_dies(node):
+    rpc, cookie = node
+    expected["cred"] = "__cookie__:other"
+    with pytest.raises(RpcCookieWait) as e:
+        rpc.batch([("echo", 6)])
+    assert transient_rpc(e.value)
+
+
+def test_missing_cookie_file_waits_not_dies(node):
+    # Clean shutdown: Core deletes .cookie, the port may answer 401 before
+    # the new file exists. Same verdict: wait.
+    rpc, cookie = node
+    expected["cred"] = "__cookie__:other"
+    cookie.unlink()
+    with pytest.raises(RpcCookieWait):
         rpc("echo", 6)
 
 
 def test_no_cookie_path_still_fatal(node):
+    # Fixed credentials (--rpc-user/--rpc-pass): a 401 is a real refusal,
+    # and must not be waited out.
     rpc, cookie = node
     bare = Rpc(rpc.url, basic_auth_header("__cookie__:stale"))
-    with pytest.raises(RuntimeError, match="authentication failed"):
+    with pytest.raises(RuntimeError, match="authentication failed") as e:
         bare("echo", 7)
+    assert not transient_rpc(e.value)

@@ -53,8 +53,8 @@ if __package__ in (None, ""):
     sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.dirname(
         os.path.abspath(__file__)))))
 from claimstones.bitcoin.txparse import Block, Tx, parse_block
-from claimstones.lineage.walker import (Rpc, RpcError, RpcMethodMissing,
-                                       resolve_rpc_auth,
+from claimstones.lineage.walker import (Rpc, RpcCookieWait, RpcError,
+                                       RpcMethodMissing, resolve_rpc_auth,
                                        resolve_rpc_cookie_path, subsidy_sats)
 from claimstones.protocol.codec import ACTIVATION_HEIGHT, MAGIC, decipher
 
@@ -555,6 +555,11 @@ def transient_rpc(e: BaseException) -> bool:
         # -28 while the block index loads; "out of range" while the node is
         # behind the height we asked for (it restarted into a catch-up).
         return e.code == RPC_IN_WARMUP or "out of range" in str(e).lower()
+    if isinstance(e, RpcCookieWait):
+        # 401 before the restarting node has written its new .cookie —
+        # the next attempt re-reads the file. Only cookie-backed clients
+        # raise this; fixed credentials keep the fatal 401 below.
+        return True
     if isinstance(e, RuntimeError):
         m = str(e)
         if "authentication failed" in m:
