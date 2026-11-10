@@ -1,11 +1,14 @@
 """Transactions and PSBTs for release-1 wallets (BIP-141, BIP-174, BIP-341).
 
 Just enough for the release-1 templates (docs/spec/wallet-policy.md
-§Transaction templates):
-every input is a taproot key-path spend, so a PSBT carries the unsigned
-transaction, one `witness_utxo` and one `tap_internal_key` per input,
-and gets back one `tap_key_sig` per input. Finalisation is the witness
-[signature]. The wallet (wallet/psbt.js) implements the same subset.
+§Transaction templates). The wallet's own transactions are taproot
+key-path spends: `witness_utxo` and `tap_internal_key` per input,
+`tap_key_sig` back, finalisation is the witness [signature]. The
+claim-and-collect PSBT (spec/land-psbt.md) is signed by someone else's
+wallet, so an input may also carry what that wallet's signer wants:
+`non_witness_utxo`, `redeem_script` for sh(wpkh), and the key origins
+(`bip32_derivation`, `tap_bip32_derivation`) a hardware signer finds
+its key by.
 
 Standard library only; deterministic.
 """
@@ -26,8 +29,12 @@ SIGHASH_ALL = 0x01
 
 PSBT_MAGIC = b"psbt\xff"
 PSBT_GLOBAL_UNSIGNED_TX = 0x00
+PSBT_IN_NON_WITNESS_UTXO = 0x00
 PSBT_IN_WITNESS_UTXO = 0x01
+PSBT_IN_REDEEM_SCRIPT = 0x04
+PSBT_IN_BIP32_DERIVATION = 0x06
 PSBT_IN_TAP_KEY_SIG = 0x13
+PSBT_IN_TAP_BIP32_DERIVATION = 0x16
 PSBT_IN_TAP_INTERNAL_KEY = 0x17
 
 
@@ -219,8 +226,14 @@ def verify_input(tx: Transaction, prevouts: list[TxOut], index: int, sig: bytes)
 @dataclass
 class PsbtInput:
     witness_utxo: TxOut | None = None
+    non_witness_utxo: bytes | None = None    # the raw previous transaction
+    redeem_script: bytes | None = None
     tap_internal_key: bytes | None = None
     tap_key_sig: bytes | None = None
+    # pubkey (33 bytes) -> fingerprint + uint32-LE path (BIP-174 0x06)
+    bip32_derivation: dict[bytes, bytes] = field(default_factory=dict)
+    # x-only key (32 bytes) -> leaf-hash count + fingerprint + path (0x16)
+    tap_bip32_derivation: dict[bytes, bytes] = field(default_factory=dict)
     unknown: dict[bytes, bytes] = field(default_factory=dict)   # full key -> value
 
 
@@ -244,10 +257,18 @@ class Psbt:
             out += _kv(k, v)
         out += b"\x00"
         for inp in self.inputs:
+            if inp.non_witness_utxo is not None:
+                out += _kv(bytes([PSBT_IN_NON_WITNESS_UTXO]), inp.non_witness_utxo)
             if inp.witness_utxo is not None:
                 out += _kv(bytes([PSBT_IN_WITNESS_UTXO]), serialize_txout(inp.witness_utxo))
+            if inp.redeem_script is not None:
+                out += _kv(bytes([PSBT_IN_REDEEM_SCRIPT]), inp.redeem_script)
+            for pub, origin in sorted(inp.bip32_derivation.items()):
+                out += _kv(bytes([PSBT_IN_BIP32_DERIVATION]) + pub, origin)
             if inp.tap_key_sig is not None:
                 out += _kv(bytes([PSBT_IN_TAP_KEY_SIG]), inp.tap_key_sig)
+            for pub, origin in sorted(inp.tap_bip32_derivation.items()):
+                out += _kv(bytes([PSBT_IN_TAP_BIP32_DERIVATION]) + pub, origin)
             if inp.tap_internal_key is not None:
                 out += _kv(bytes([PSBT_IN_TAP_INTERNAL_KEY]), inp.tap_internal_key)
             for k, v in sorted(inp.unknown.items()):
@@ -286,12 +307,19 @@ class Psbt:
                 inp.witness_utxo = TxOut(rr.u64(), rr.var_bytes())
                 if not rr.done:
                     raise PsbtError("malformed witness_utxo")
+            inp.non_witness_utxo = m.pop(bytes([PSBT_IN_NON_WITNESS_UTXO]), None)
+            inp.redeem_script = m.pop(bytes([PSBT_IN_REDEEM_SCRIPT]), None)
             inp.tap_key_sig = m.pop(bytes([PSBT_IN_TAP_KEY_SIG]), None)
             if inp.tap_key_sig is not None and len(inp.tap_key_sig) not in (64, 65):
                 raise PsbtError("tap_key_sig must be 64 or 65 bytes")
             inp.tap_internal_key = m.pop(bytes([PSBT_IN_TAP_INTERNAL_KEY]), None)
             if inp.tap_internal_key is not None and len(inp.tap_internal_key) != 32:
                 raise PsbtError("tap_internal_key must be 32 bytes")
+            for key in list(m):
+                if key[0] == PSBT_IN_BIP32_DERIVATION and len(key) == 34:
+                    inp.bip32_derivation[key[1:]] = m.pop(key)
+                elif key[0] == PSBT_IN_TAP_BIP32_DERIVATION and len(key) == 33:
+                    inp.tap_bip32_derivation[key[1:]] = m.pop(key)
             inp.unknown = m
             psbt.inputs.append(inp)
         for _ in tx.outputs:
