@@ -3,8 +3,10 @@
 The indexer RPC (docs/spec/indexer-rpc.md) deliberately speaks only
 bech32/bech32m and raw script hex. The public gateway cannot be that
 strict: a visitor pastes whatever their wallet shows them, and a lot of
-coins still sit on 1... and 3... addresses. Decoding only — nothing in
-this codebase ever needs to *produce* a legacy address.
+coins still sit on 1... and 3... addresses. Nothing in this codebase
+ever needs to *produce* a legacy address; `encode_check` exists for
+extended public keys (descriptors.py re-serializes a SLIP-132 key in
+its canonical xpub/tpub form), not for addresses.
 """
 
 from __future__ import annotations
@@ -27,7 +29,9 @@ class Base58Error(ValueError):
 
 def decode_check(s: str) -> bytes:
     """Base58Check string -> payload (version byte included)."""
-    if not s or len(s) > 90:
+    # 112 covers every address and extended public key; the cap exists so
+    # the gateway never chews on an arbitrarily long pasted line.
+    if not s or len(s) > 112:
         raise Base58Error("not a base58 string")
     n = 0
     for c in s:
@@ -44,6 +48,19 @@ def decode_check(s: str) -> bytes:
     if hashlib.sha256(hashlib.sha256(payload).digest()).digest()[:4] != check:
         raise Base58Error("bad checksum")
     return payload
+
+
+def encode_check(payload: bytes) -> str:
+    """Payload -> Base58Check string (version byte included in payload)."""
+    check = hashlib.sha256(hashlib.sha256(payload).digest()).digest()[:4]
+    raw = payload + check
+    n = int.from_bytes(raw, "big")
+    out = ""
+    while n:
+        n, r = divmod(n, 58)
+        out = ALPHABET[r] + out
+    zeros = len(raw) - len(raw.lstrip(b"\x00"))
+    return "1" * zeros + out
 
 
 def address_to_script(addr: str) -> bytes:
