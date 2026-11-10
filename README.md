@@ -34,13 +34,14 @@ src/claimstones/
   indexer/    deterministic replay, the birth index, the fast build, the tip
               daemon, and the JSON-RPC server that makes the index queryable
   bitcoin/    keys, bech32m, transactions, PSBT, block parsing (no third-party crypto)
+  wallet/     claimstones-wallet, the reference wallet (docs/wallet-user-guide.md)
   cli/        claimstones-cli, bitcoin-cli for the indexer RPC
 docs/         release-1 scope, the specification set, the index verification identity
 data/         calibration datasets behind the constants
 tests/        protocol, lineage, indexer, and RPC tests, including the spec's test vectors
 ```
 
-Claimstones is the core stack; wallets are front ends, and any number of them can be made against the JSON-RPC in `docs/spec/indexer-rpc.md` — or against a Bitcoin node alone, since valuation is a pure function of chain data and the walker computes the identical number (the node-only guarantee in that spec). A reference wallet, a CLI, arrives in an upcoming commit.
+Claimstones is the core stack; wallets are front ends, and any number of them can be made against the JSON-RPC in `docs/spec/indexer-rpc.md` — or against a Bitcoin node alone, since valuation is a pure function of chain data and the walker computes the identical number (the node-only guarantee in that spec). The reference wallet is `claimstones-wallet`, a CLI; `docs/wallet-user-guide.md` is its user guide.
 
 ## Running it
 
