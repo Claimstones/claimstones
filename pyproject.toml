@@ -12,6 +12,7 @@ dependencies = ["numpy", "lmdb"]
 
 [project.scripts]
 claimstones-cli = "claimstones.cli.rpc_cli:main"
+claimstones-wallet = "claimstones.wallet.cli:main"
 
 [tool.setuptools.packages.find]
 where = ["src"]
