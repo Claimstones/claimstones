@@ -23,11 +23,24 @@ claimstones-wallet
 
 With no arguments it opens a menu. The wallet talks to a claimstones
 server (`docs/spec/indexer-rpc.md`) — by default one on your own
-machine at `http://127.0.0.1:7332`:
+machine at `http://127.0.0.1:7332`.
+
+A worked example, everything on one machine, from the repository
+folder. The server serves the birth index and writes its auth cookie
+`rpc.cookie` beside the index by default; the wallet reads that same
+file, and the default URL already matches, so only the cookie needs
+pointing:
 
 ```
-claimstones-wallet -rpcurl http://127.0.0.1:7332 -rpccookie <path>/rpc.cookie
+cd claimstones
+python -m claimstones.indexer.rpc --db <path>/birth.lmdb ^
+    --node-url http://127.0.0.1:8332 --node-cookie <bitcoin datadir>/.cookie
+claimstones-wallet -rpccookie <path>/rpc.cookie
 ```
+
+(`^` continues a line on Windows; use `\` on Linux. Without the
+`--node-*` flags the server still serves coins and runs exactly, but
+cannot value them at the tip or relay transactions.)
 
 | flag | meaning |
 |---|---|
