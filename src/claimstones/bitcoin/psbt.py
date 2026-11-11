@@ -33,6 +33,8 @@ PSBT_IN_NON_WITNESS_UTXO = 0x00
 PSBT_IN_WITNESS_UTXO = 0x01
 PSBT_IN_REDEEM_SCRIPT = 0x04
 PSBT_IN_BIP32_DERIVATION = 0x06
+PSBT_IN_FINAL_SCRIPTSIG = 0x07
+PSBT_IN_FINAL_SCRIPTWITNESS = 0x08
 PSBT_IN_TAP_KEY_SIG = 0x13
 PSBT_IN_TAP_BIP32_DERIVATION = 0x16
 PSBT_IN_TAP_INTERNAL_KEY = 0x17
@@ -230,6 +232,8 @@ class PsbtInput:
     redeem_script: bytes | None = None
     tap_internal_key: bytes | None = None
     tap_key_sig: bytes | None = None
+    final_script_sig: bytes | None = None    # a finalizing signer's 0x07
+    final_script_witness: bytes | None = None   # ... and 0x08, serialized
     # pubkey (33 bytes) -> fingerprint + uint32-LE path (BIP-174 0x06)
     bip32_derivation: dict[bytes, bytes] = field(default_factory=dict)
     # x-only key (32 bytes) -> leaf-hash count + fingerprint + path (0x16)
@@ -265,6 +269,11 @@ class Psbt:
                 out += _kv(bytes([PSBT_IN_REDEEM_SCRIPT]), inp.redeem_script)
             for pub, origin in sorted(inp.bip32_derivation.items()):
                 out += _kv(bytes([PSBT_IN_BIP32_DERIVATION]) + pub, origin)
+            if inp.final_script_sig is not None:
+                out += _kv(bytes([PSBT_IN_FINAL_SCRIPTSIG]), inp.final_script_sig)
+            if inp.final_script_witness is not None:
+                out += _kv(bytes([PSBT_IN_FINAL_SCRIPTWITNESS]),
+                           inp.final_script_witness)
             if inp.tap_key_sig is not None:
                 out += _kv(bytes([PSBT_IN_TAP_KEY_SIG]), inp.tap_key_sig)
             for pub, origin in sorted(inp.tap_bip32_derivation.items()):
@@ -309,6 +318,9 @@ class Psbt:
                     raise PsbtError("malformed witness_utxo")
             inp.non_witness_utxo = m.pop(bytes([PSBT_IN_NON_WITNESS_UTXO]), None)
             inp.redeem_script = m.pop(bytes([PSBT_IN_REDEEM_SCRIPT]), None)
+            inp.final_script_sig = m.pop(bytes([PSBT_IN_FINAL_SCRIPTSIG]), None)
+            inp.final_script_witness = m.pop(
+                bytes([PSBT_IN_FINAL_SCRIPTWITNESS]), None)
             inp.tap_key_sig = m.pop(bytes([PSBT_IN_TAP_KEY_SIG]), None)
             if inp.tap_key_sig is not None and len(inp.tap_key_sig) not in (64, 65):
                 raise PsbtError("tap_key_sig must be 64 or 65 bytes")
@@ -357,6 +369,34 @@ class Psbt:
             if not verify_input(self.tx, prevouts, n, inp.tap_key_sig):
                 raise PsbtError(f"the signature on input {n} does not verify")
             txin.witness = [inp.tap_key_sig]
+        return signed
+
+    def extract(self) -> Transaction:
+        """The signed transaction from a PSBT another wallet finalized:
+        final_scriptSig / final_scriptwitness where present, taproot
+        key-path tap_key_sig (verified) as the fallback. ECDSA material
+        in the final fields is assembled, not verified — signature
+        validity is the network's check; the template checks are the
+        caller's (wallet-policy.md §Envelope scan)."""
+        signed = Transaction.parse(self.tx.serialize(with_witness=False))
+        for n, (inp, txin) in enumerate(zip(self.inputs, signed.inputs)):
+            if (inp.final_script_sig is not None
+                    or inp.final_script_witness is not None):
+                txin.script_sig = inp.final_script_sig or b""
+                if inp.final_script_witness:
+                    r = _Reader(inp.final_script_witness)
+                    txin.witness = [r.var_bytes() for _ in range(r.varint())]
+                    if not r.done:
+                        raise PsbtError(
+                            f"malformed final_scriptwitness on input {n}")
+            elif inp.tap_key_sig is not None:
+                if not verify_input(self.tx, self.prevouts(), n,
+                                    inp.tap_key_sig):
+                    raise PsbtError(
+                        f"the signature on input {n} does not verify")
+                txin.witness = [inp.tap_key_sig]
+            else:
+                raise PsbtError(f"input {n} is not signed")
         return signed
 
 

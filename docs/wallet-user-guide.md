@@ -154,6 +154,49 @@ The wallet refuses a claim where the fee would eat more than a fifth
 of the coins — small coins at a high fee rate are better left until
 fees are low, since unclaimed value keeps.
 
+## Claim and collect: coins in another wallet
+
+Claim works on the wallet's own address. For bitcoin you keep
+elsewhere — a hardware wallet, Sparrow, any wallet that can sign a
+PSBT — the harvest flow lands the value without moving the bitcoin:
+
+```
+claimstones-wallet collect <funding address> <fee rate>
+```
+
+(or `[e]` in the menu). The wallet builds one transaction from every
+coin on that address and writes two files: a `.psbt` to sign in the
+wallet that holds the coins, and a `.json` record it will check the
+result against. **The signer pays the miner fee plus 330 sats, nothing
+more** — all the rest of the bitcoin returns to the address it came
+from, and the orchids arrive on this wallet's address. The review in
+the signing wallet shows exactly that: an OP_RETURN, 330 sats to your
+orchid address, the remainder back to yourself.
+
+Sign the PSBT there, then bring back what it produced — the final
+transaction hex, or the finalized PSBT:
+
+```
+claimstones-wallet relay collect-<stamp>.json <signed file, hex or base64>
+```
+
+(or `[b]` in the menu). The wallet re-checks the signed transaction
+against the record — exactly the outputs you confirmed, nothing
+added, nothing redirected — and only then hands it to the server to
+broadcast. You can equally broadcast from the signing wallet; the
+relay step is the careful route.
+
+There is no deadline on signing: the landed amount is fixed by the
+block the transaction confirms in, and the PSBT only fails if one of
+the coins is spent first. To raise the fee later, use Increase fee
+(RBF) or CPFP in your other wallet; never edit the outputs — a wallet
+that reorders them hands the orchids to whatever output comes first.
+
+Legacy addresses (`1...`) are refused for now: their signers need each
+coin's full previous transaction, which this server does not serve.
+Segwit and taproot addresses (`bc1...`, and `3...` wrapping segwit)
+work.
+
 ## What the wallet will never do
 
 These are rules from `docs/spec/wallet-policy.md`, enforced in code:
@@ -168,7 +211,5 @@ These are rules from `docs/spec/wallet-policy.md`, enforced in code:
 
 ## Coming next
 
-In build order: claim-and-collect for coins held in another wallet
-(the wallet prepares a PSBT, you sign it in your own wallet, nothing
-moves to anyone); Send and Withdraw; then the end-to-end trial on
+In build order: Send and Withdraw; then the end-to-end trial on
 regtest and signet before any of this touches mainnet.
