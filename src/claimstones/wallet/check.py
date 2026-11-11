@@ -100,3 +100,19 @@ def orchids(seeds: int) -> str:
     """Seeds as orchids (100 seeds each), exact, no floats."""
     whole, part = divmod(seeds, 100)
     return f"{whole:,}.{part:02d}"
+
+
+def parse_orchids(text: str) -> int:
+    """An orchid amount as typed ("12.34") to seeds, exact, no floats."""
+    t = text.strip().replace(",", "").replace(" ", "")
+    whole, dot, part = t.partition(".")
+    if dot:
+        if not part or len(part) > 2 or not part.isdigit():
+            raise ValueError(f"not an orchid amount: {text}"
+                             " (orchids have two decimals)")
+        part = part.ljust(2, "0")
+    else:
+        part = "00"
+    if not (whole or dot) or (whole and not whole.isdigit()):
+        raise ValueError(f"not an orchid amount: {text}")
+    return int(whole or 0) * 100 + int(part)

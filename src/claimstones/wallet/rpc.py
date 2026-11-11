@@ -99,5 +99,11 @@ class IndexerRpc:
     def getlatent(self, target) -> dict:
         return self.call("getlatent", target)
 
+    def getorchidbalance(self, target) -> dict:
+        # Settled balances; the index serves this once the ledger half
+        # exists (indexer-rpc.md §Planned). Until then the server
+        # answers with an error the caller shows.
+        return self.call("getorchidbalance", target)
+
     def sendrawtransaction(self, hexstring: str) -> str:
         return self.call("sendrawtransaction", hexstring)

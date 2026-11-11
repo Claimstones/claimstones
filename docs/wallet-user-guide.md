@@ -77,11 +77,19 @@ Two warnings, both absolute:
   recover the wallet.** Nobody operates claimstones; there is no one
   to ask.
 
-The wallet file (default `~/.claimstones/wallet.code`) holds the code
-in plain text, created readable by your user only. It deserves the
-same care as a Bitcoin Core wallet file. The wallet never overwrites
-an existing wallet file — restoring over one is refused, so a mistake
-cannot destroy a wallet silently.
+The wallet file (default `~/.claimstones/wallet.code`) holds the code,
+created readable by your user only, and deserves the same care as a
+Bitcoin Core wallet file. At creation you can set a **password**: the
+file is then locked (scrypt-stretched, authenticated), and the wallet
+asks for the password when it opens — the same idea as bitcoind's
+wallet encryption. The password protects the file on disk; it is not
+the backup. The wallet code alone restores everything, password
+forgotten or not — and whoever has the code never needs the password.
+The wallet never overwrites an existing wallet file — restoring over
+one is refused, so a mistake cannot destroy a wallet silently.
+
+`claimstones-wallet backup` (or `[o]` in the menu) shows the wallet
+code again, for the day the paper needs rewriting.
 
 ## Receiving
 
@@ -92,7 +100,8 @@ Give out your address. Two different things arrive on it:
 - **Orchids** sent by another wallet arrive as settled balance,
   riding on a small coin (330 sats) created by the sender.
 
-The menu shows the address whenever a wallet is loaded.
+The menu shows the address whenever a wallet is loaded, and
+`claimstones-wallet address` (or `[a]`) prints it for copying.
 
 ## Check: look at any bitcoin, yours or not
 
@@ -209,7 +218,49 @@ These are rules from `docs/spec/wallet-policy.md`, enforced in code:
 - It never selects a coin carrying orchid balance as fee material for
   something else; settled coins move only when you send orchids.
 
+## Send: pay orchids to someone
+
+```
+claimstones-wallet send <address> <orchids> <fee rate>
+```
+
+(or `[s]` in the menu; the amount is in orchids, e.g. `12.34`). The
+orchids travel to the recipient on a 330-sat coin the wallet creates;
+the miner fee comes from this wallet's own sats, and everything else —
+change and the remaining orchids — returns to the wallet address.
+Nothing in release 1 charges orchids for anything.
+
+The recipient's address should be their orchid wallet's (taproot or
+native segwit — the 330-sat coin is below a legacy address's dust
+bound, and the wallet refuses rather than build a transaction the
+network would drop). Coin control is automatic: settled orchid coins
+cover the amount, largest first, and only plain coins are ever added
+as fee material.
+
+Sending waits on one server piece: settled balances per coin
+(`getorchidbalance`, planned in the index). Until the server serves
+them, Send refuses with exactly that reason.
+
+## Withdraw: bitcoin leaves, orchids stay
+
+```
+claimstones-wallet withdraw <address> <sats> <fee rate>
+```
+
+(or `[w]` in the menu). For when bitcoin was moved onto the wallet
+only to claim, and now goes back. **Your orchids stay in this wallet;
+only bitcoin leaves.** The transaction carries a mandatory envelope
+pinning every settled orchid to the wallet's own change — without it,
+an ordinary spend would sweep the balance to the destination. That is
+why Withdraw exists as a command instead of "just send from the file".
+
+One caution the envelope cannot cover: *unclaimed* value rides the
+sats themselves. The wallet spends already-claimed coins first, and if
+the amount forces coins with unclaimed value into the transaction, it
+says how much and asks whether to claim first — claiming before
+withdrawing keeps that value here.
+
 ## Coming next
 
-In build order: Send and Withdraw; then the end-to-end trial on
-regtest and signet before any of this touches mainnet.
+The end-to-end trial on regtest and signet before any of this touches
+mainnet.

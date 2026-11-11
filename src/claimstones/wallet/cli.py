@@ -1,11 +1,12 @@
 """claimstones-wallet — the reference wallet, a menu-loop CLI.
 
 The release-1 feature set of wallet-policy.md §What a wallet can do,
-grown one command at a time. Built: Check (watch-only — any address,
-xpub or descriptor), Claim (land the latent value on the wallet's own
-address), and the external claim and collect (build the PSBT for coins
-another wallet holds, then verify and relay what it signed). Coming:
-Send, Receive, Withdraw.
+grown one command at a time and now complete: Check (watch-only — any
+address, xpub or descriptor), Receive, Claim, Send, Withdraw, the
+external claim and collect (build the PSBT for coins another wallet
+holds, then verify and relay what it signed), and backup by wallet
+code. The wallet file can be locked under a password; the wallet code
+alone restores either way.
 
 It speaks the indexer RPC (spec/indexer-rpc.md) and trusts it only for
 what it shows; everything the wallet ever signs or relays is built and
@@ -16,6 +17,9 @@ verified locally (wallet/land.py, wallet-policy.md §Envelope scan).
     claimstones-wallet claim 2                          # claim at 2 sat/vB
     claimstones-wallet collect bc1q... 2                # build the PSBT
     claimstones-wallet relay collect-....json signed.hex
+    claimstones-wallet send bc1p... 12.34 2
+    claimstones-wallet withdraw bc1q... 50000 2
+    claimstones-wallet address | backup
     ... -rpcurl http://... -rpccookie <path>/rpc.cookie -wallet <file>
 """
 
@@ -27,18 +31,24 @@ import json
 import os
 import sys
 
+import getpass
+
 from claimstones.bitcoin.descriptors import CheckInputError
-from claimstones.wallet.check import CheckReport, orchids, run_check
+from claimstones.wallet.check import CheckReport, orchids, parse_orchids, run_check
 from claimstones.wallet.claim import ClaimPlan, plan_claim, sign_claim
 from claimstones.wallet.collect import (
     CollectPlan, load_record, plan_collect, plan_record, verify_returned,
 )
 from claimstones.wallet.keys import (
-    WalletKey, WalletKeyError, load_wallet, save_wallet,
+    WalletKey, WalletKeyError, WalletLocked, load_wallet, save_wallet,
 )
 from claimstones.wallet.land import TemplateError
 from claimstones.wallet.rpc import (
     DEFAULT_URL, IndexerRpc, RpcUnreachable, WalletRpcError,
+)
+from claimstones.wallet.spend import (
+    SendPlan, WithdrawPlan, plan_send, plan_withdraw, sign_send,
+    sign_withdraw,
 )
 
 DEFAULT_WALLET = os.path.join(os.path.expanduser("~"),
@@ -249,16 +259,182 @@ def do_relay(rpc: IndexerRpc, record_path: str, signed: str,
     return 0
 
 
+def do_receive(key: WalletKey, network: str, out=sys.stdout) -> int:
+    out.write(f"\nwallet address: {key.address(network)}\n")
+    out.write("  bitcoin sent here stays yours and becomes claimable;"
+              " orchids sent by\n  another wallet arrive as balance —"
+              " one address, reused\n\n")
+    return 0
+
+
+def do_backup(key: WalletKey, out=sys.stdout) -> int:
+    out.write("\nyour wallet code — write it down somewhere safe; the"
+              " code alone restores\nthe wallet, and anyone who knows"
+              " it owns the orchids:\n")
+    out.write(f"  {key.code}\n\n")
+    return 0
+
+
+def print_send_plan(plan: SendPlan, out=sys.stdout) -> None:
+    w = out.write
+    s = plan.summary
+    w(f"\nsend {orchids(s.amount_seeds)} orchids to {plan.recipient}\n")
+    w(f"  {len(s.inputs)} coin{'s' if len(s.inputs) != 1 else ''} in,"
+      f" carrying {orchids(s.input_seeds)} orchids settled\n")
+    w(f"  the recipient's coin carries {s.carrier_sats} sats; the"
+      f" {s.fee_sats:,}-sat miner fee\n  comes from this wallet's own"
+      f" sats; {s.change_sats:,} sats and the remaining\n  orchids"
+      " return to the wallet address\n")
+
+
+def do_send(rpc: IndexerRpc, key: WalletKey, network: str, recipient: str,
+            amount_text: str, fee_rate: float, out=sys.stdout,
+            ask=input) -> int:
+    try:
+        amount_seeds = parse_orchids(amount_text)
+    except ValueError as e:
+        print(e, file=sys.stderr)
+        return 1
+    try:
+        plan = plan_send(key, rpc, recipient, amount_seeds, fee_rate, network)
+    except TemplateError as e:
+        print(f"cannot send: {e}", file=sys.stderr)
+        return 1
+    except WalletRpcError as e:
+        print(f"the server refused: {e.message}", file=sys.stderr)
+        return 1
+    except RpcUnreachable as e:
+        print(f"no server: {e}", file=sys.stderr)
+        return 1
+    print_send_plan(plan, out)
+    try:
+        answer = ask("send? [y/N] ")
+    except EOFError:
+        answer = ""
+    if answer.strip().lower() not in ("y", "yes"):
+        out.write("nothing sent\n")
+        return 0
+    try:
+        tx = sign_send(plan, key)
+        txid = rpc.sendrawtransaction(tx.serialize().hex())
+    except TemplateError as e:
+        print(f"refusing to sign: {e}", file=sys.stderr)
+        return 1
+    except (WalletRpcError, RpcUnreachable) as e:
+        print(f"the server refused the transaction: {e}", file=sys.stderr)
+        return 1
+    out.write(f"sent: {txid}\n")
+    return 0
+
+
+def print_withdraw_plan(plan: WithdrawPlan, out=sys.stdout) -> None:
+    w = out.write
+    s = plan.summary
+    w(f"\nwithdraw {s.amount_sats:,} sats to {plan.destination}\n")
+    w(f"  {len(s.inputs)} coin{'s' if len(s.inputs) != 1 else ''} in,"
+      f" fee {s.fee_sats:,} sats, {s.change_sats:,} sats stay on the"
+      " wallet address\n")
+    w("  your orchids stay in this wallet; only bitcoin leaves\n")
+    if plan.latent_sats:
+        w(f"  CAUTION: the selected coins still carry {plan.latent_sats:,}"
+          " sats of unclaimed value,\n  which would go to the destination"
+          " — claim first?\n")
+
+
+def do_withdraw(rpc: IndexerRpc, key: WalletKey, network: str,
+                destination: str, amount_sats: int, fee_rate: float,
+                out=sys.stdout, ask=input) -> int:
+    try:
+        plan = plan_withdraw(key, rpc, destination, amount_sats, fee_rate,
+                             network)
+    except TemplateError as e:
+        print(f"cannot withdraw: {e}", file=sys.stderr)
+        return 1
+    except WalletRpcError as e:
+        print(f"the server refused: {e.message}", file=sys.stderr)
+        return 1
+    except RpcUnreachable as e:
+        print(f"no server: {e}", file=sys.stderr)
+        return 1
+    print_withdraw_plan(plan, out)
+    prompt = ("withdraw anyway? [y/N] " if plan.latent_sats
+              else "withdraw? [y/N] ")
+    try:
+        answer = ask(prompt)
+    except EOFError:
+        answer = ""
+    if answer.strip().lower() not in ("y", "yes"):
+        out.write("nothing sent\n")
+        return 0
+    try:
+        tx = sign_withdraw(plan, key)
+        txid = rpc.sendrawtransaction(tx.serialize().hex())
+    except TemplateError as e:
+        print(f"refusing to sign: {e}", file=sys.stderr)
+        return 1
+    except (WalletRpcError, RpcUnreachable) as e:
+        print(f"the server refused the transaction: {e}", file=sys.stderr)
+        return 1
+    out.write(f"withdrawal sent: {txid}\n")
+    return 0
+
+
+def _ask_secret(prompt: str) -> str:
+    """getpass on a terminal; plain stdin when piped (scripts, tests) —
+    on Windows getpass reads the console directly and would hang a
+    piped run forever."""
+    if sys.stdin.isatty():
+        return getpass.getpass(prompt)
+    try:
+        return input(prompt)
+    except EOFError:
+        return ""
+
+
+def _unlock(path: str) -> WalletKey:
+    """Load the wallet, prompting for the password when the file is
+    locked; an empty password gives up."""
+    try:
+        return load_wallet(path)
+    except WalletLocked:
+        pass
+    while True:
+        pw = _ask_secret("wallet password> ")
+        if not pw:
+            raise WalletKeyError("the wallet stays locked")
+        try:
+            return load_wallet(path, pw)
+        except WalletKeyError as e:
+            print(e)
+
+
+def _ask_new_password() -> str | None:
+    """A password for a new wallet file; empty = none. Returns None
+    when the two entries disagree."""
+    pw = _ask_secret("password for the wallet file (empty for none)> ")
+    if not pw:
+        return ""
+    again = _ask_secret("the same password again> ")
+    if pw != again:
+        print("the passwords do not match")
+        return None
+    return pw
+
+
 def _create_wallet(path: str, network: str) -> WalletKey | None:
+    pw = _ask_new_password()
+    if pw is None:
+        return None
     key = WalletKey.new()
     try:
-        save_wallet(path, key)
+        save_wallet(path, key, pw or None)
     except WalletKeyError as e:
         print(f"cannot save the wallet: {e}")
         return None
-    print(f"wallet saved to {path}")
+    print(f"wallet saved to {path}" + (" (locked)" if pw else ""))
     print("your wallet code — write it down somewhere safe; the code"
-          " alone restores the wallet:")
+          " alone restores the wallet" + (", password or not" if pw else "")
+          + ":")
     print(f"  {key.code}")
     print(f"wallet address: {key.address(network)}")
     return key
@@ -273,11 +449,18 @@ def _restore_wallet(path: str, network: str) -> WalletKey | None:
         return None
     try:
         key = WalletKey.from_code(code)
-        save_wallet(path, key)
     except WalletKeyError as e:
         print(f"cannot restore: {e}")
         return None
-    print(f"wallet saved to {path}")
+    pw = _ask_new_password()
+    if pw is None:
+        return None
+    try:
+        save_wallet(path, key, pw or None)
+    except WalletKeyError as e:
+        print(f"cannot restore: {e}")
+        return None
+    print(f"wallet saved to {path}" + (" (locked)" if pw else ""))
     print(f"wallet address: {key.address(network)}")
     return key
 
@@ -307,11 +490,11 @@ def menu(rpc: IndexerRpc, network: str, wallet_path: str) -> int:
         state = f"server not answering ({e})"
     key = None
     try:
-        key = load_wallet(wallet_path)
+        key = _unlock(wallet_path)
     except FileNotFoundError:
         pass
     except WalletKeyError as e:
-        print(f"cannot read the wallet file {wallet_path}: {e}")
+        print(f"cannot open the wallet {wallet_path}: {e}")
     print(f"claimstones wallet — {rpc.url}, {state}")
     if key is not None:
         print(f"wallet address: {key.address(network)}")
@@ -319,11 +502,14 @@ def menu(rpc: IndexerRpc, network: str, wallet_path: str) -> int:
         items = ["  [c] check any bitcoin — address, xpub or descriptor,"
                  " watch-only"]
         if key is not None:
+            items.append("  [a] receive — the wallet address")
             items.append("  [k] claim — land the latent value on the"
                          " wallet address")
+            items.append("  [s] send orchids    [w] withdraw bitcoin")
             items.append("  [e] external claim and collect — harvest coins"
                          " another wallet holds")
             items.append("  [b] broadcast a signed collect")
+            items.append("  [o] backup — show the wallet code")
         else:
             items.append("  [n] new wallet    [r] restore from wallet code")
         items.append("  [q] quit")
@@ -351,6 +537,45 @@ def menu(rpc: IndexerRpc, network: str, wallet_path: str) -> int:
                 print(f"not a number: {raw}")
                 continue
             do_claim(rpc, key, fee_rate)
+            continue
+        if choice in ("a", "receive", "address") and key is not None:
+            do_receive(key, network)
+            continue
+        if choice in ("o", "backup") and key is not None:
+            do_backup(key)
+            continue
+        if choice in ("s", "send") and key is not None:
+            try:
+                recipient = input("recipient address> ").strip()
+                amount = input("orchids to send (e.g. 12.34)> ").strip()
+                raw = input("fee rate (sat/vB)> ").strip()
+            except EOFError:
+                continue
+            if not (recipient and amount):
+                continue
+            try:
+                fee_rate = float(raw)
+            except ValueError:
+                print(f"not a number: {raw}")
+                continue
+            do_send(rpc, key, network, recipient, amount, fee_rate)
+            continue
+        if choice in ("w", "withdraw") and key is not None:
+            try:
+                dest = input("destination address> ").strip()
+                amount = input("amount in sats> ").strip()
+                raw = input("fee rate (sat/vB)> ").strip()
+            except EOFError:
+                continue
+            if not (dest and amount):
+                continue
+            try:
+                sats = int(amount.replace(",", ""))
+                fee_rate = float(raw)
+            except ValueError:
+                print("the amount is whole sats and the fee rate a number")
+                continue
+            do_withdraw(rpc, key, network, dest, sats, fee_rate)
             continue
         if choice in ("e", "collect") and key is not None:
             try:
@@ -400,12 +625,15 @@ def main(argv=None) -> int:
     ap.add_argument("-wallet", default=DEFAULT_WALLET,
                     help="the wallet file (default %(default)s)")
     ap.add_argument("command", nargs="?",
-                    choices=["check", "claim", "collect", "relay"])
+                    choices=["check", "claim", "collect", "relay", "send",
+                             "withdraw", "address", "backup"])
     ap.add_argument("lines", nargs="*", metavar="line",
                     help="check: addresses, xpubs or descriptors;"
                          " claim: fee rate (sat/vB);"
                          " collect: funding address + fee rate;"
-                         " relay: record file + signed transaction")
+                         " relay: record file + signed transaction;"
+                         " send: address + orchids + fee rate;"
+                         " withdraw: address + sats + fee rate")
     args = ap.parse_args(argv)
 
     credential = (f"{args.rpcuser}:{args.rpcpassword or ''}"
@@ -416,39 +644,60 @@ def main(argv=None) -> int:
     if args.command == "check":
         lines = args.lines or [l.strip() for l in sys.stdin if l.strip()]
         return do_check(rpc, args.network, lines)
+    if args.command is None:
+        return menu(rpc, args.network, args.wallet)
     if args.command == "relay":
         if len(args.lines) != 2:
             print("usage: claimstones-wallet relay <record.json>"
                   " <signed file or hex>", file=sys.stderr)
             return 2
         return do_relay(rpc, args.lines[0], args.lines[1])
-    if args.command in ("claim", "collect"):
-        usage = {"claim": "claim <fee rate in sat/vB>",
-                 "collect": "collect <funding address> <fee rate in sat/vB>"}
-        want = 1 if args.command == "claim" else 2
-        if len(args.lines) != want:
-            print(f"usage: claimstones-wallet {usage[args.command]}",
-                  file=sys.stderr)
-            return 2
+
+    # Everything else needs the wallet.
+    usage = {"claim": "claim <fee rate in sat/vB>",
+             "collect": "collect <funding address> <fee rate>",
+             "send": "send <address> <orchids> <fee rate>",
+             "withdraw": "withdraw <address> <sats> <fee rate>",
+             "address": "address", "backup": "backup"}
+    want = {"claim": 1, "collect": 2, "send": 3, "withdraw": 3,
+            "address": 0, "backup": 0}
+    if len(args.lines) != want[args.command]:
+        print(f"usage: claimstones-wallet {usage[args.command]}",
+              file=sys.stderr)
+        return 2
+    fee_rate = None
+    if want[args.command]:
         try:
             fee_rate = float(args.lines[-1])
         except ValueError:
             print(f"not a fee rate: {args.lines[-1]}", file=sys.stderr)
             return 2
-        try:
-            key = load_wallet(args.wallet)
-        except FileNotFoundError:
-            print(f"no wallet at {args.wallet}; the menu's [n] creates one",
-                  file=sys.stderr)
-            return 1
-        except WalletKeyError as e:
-            print(f"cannot read the wallet file {args.wallet}: {e}",
-                  file=sys.stderr)
-            return 1
-        if args.command == "claim":
-            return do_claim(rpc, key, fee_rate)
+    try:
+        key = _unlock(args.wallet)
+    except FileNotFoundError:
+        print(f"no wallet at {args.wallet}; the menu's [n] creates one",
+              file=sys.stderr)
+        return 1
+    except WalletKeyError as e:
+        print(f"cannot open the wallet {args.wallet}: {e}", file=sys.stderr)
+        return 1
+    if args.command == "address":
+        return do_receive(key, args.network)
+    if args.command == "backup":
+        return do_backup(key)
+    if args.command == "claim":
+        return do_claim(rpc, key, fee_rate)
+    if args.command == "collect":
         return do_collect(rpc, key, args.network, args.lines[0], fee_rate)
-    return menu(rpc, args.network, args.wallet)
+    if args.command == "send":
+        return do_send(rpc, key, args.network, args.lines[0], args.lines[1],
+                       fee_rate)
+    try:
+        sats = int(args.lines[1].replace(",", ""))
+    except ValueError:
+        print(f"the amount is whole sats: {args.lines[1]}", file=sys.stderr)
+        return 2
+    return do_withdraw(rpc, key, args.network, args.lines[0], sats, fee_rate)
 
 
 if __name__ == "__main__":
