@@ -59,6 +59,15 @@ def hash_key(height: int) -> str:
     return f"hash:{height}"
 
 
+def fmt_eta(seconds: float) -> str:
+    s = int(seconds)
+    if s >= 86400:
+        return f"{s // 86400}d{s % 86400 // 3600}h"
+    if s >= 3600:
+        return f"{s // 3600}h{s % 3600 // 60:02d}m"
+    return f"{s // 60}m{s % 60:02d}s"
+
+
 class ChainFollower:
     """One reorg-check-then-extend cycle over an injected block source.
 
@@ -137,6 +146,9 @@ class ChainFollower:
         connected = 0
         stopped = None
         if tip >= start:
+            # rate over the last report interval, not since start: dense
+            # eras would otherwise flatter the ETA for hours after
+            t_last, h_last = time.time(), start - 1
             for block in self.blocks.iter(start, tip):
                 self._connect(block)
                 connected += 1
@@ -146,9 +158,16 @@ class ChainFollower:
                 if (block.height % self.report_every == 0
                         or block.height == tip):
                     s = self.store.stats
-                    self.report(f"  h={block.height} {block.hash_hex[:16]}… "
-                                f"utxos {fmt(s['utxos'])} "
-                                f"runs {fmt(s['runs'])}", flush=True)
+                    line = (f"  h={block.height} {block.hash_hex[:16]}… "
+                            f"utxos {fmt(s['utxos'])} "
+                            f"runs {fmt(s['runs'])}")
+                    now, left = time.time(), tip - block.height
+                    if left and now > t_last:
+                        rate = (block.height - h_last) / (now - t_last)
+                        line += (f"  {rate:.1f} blk/s, {fmt(left)} to go, "
+                                 f"eta {fmt_eta(left / rate)}")
+                    self.report(line, flush=True)
+                    t_last, h_last = now, block.height
                 stopped = self.stop_requested()
                 if stopped:
                     break
