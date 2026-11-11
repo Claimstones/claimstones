@@ -12,7 +12,7 @@ A wallet without its own Bitcoin node uses this API for its view — discovery, 
 
 - `POST /` with `{"method": "...", "params": [...], "id": any}`; the reply is `{"result": ..., "error": null, "id"}` or `{"result": null, "error": {"code", "message"}, "id"}`. Error messages name the call and the reason in plain words a wallet can show; no silent fallbacks.
 - **Auth**: on start the server writes `rpc.cookie` beside the database — `__cookie__:<64 hex>`, bitcoind's convention — and requires it as HTTP Basic credentials (`--no-auth` for localhost experiments). The cookie is rotated on every start.
-- **Port** 7332 by default, one digit off the node it serves beside. **[decide]** before signet: fixed ports per network, as Core does (8332/18332/38332/18443).
+- **Port**: one digit off the node it serves beside, per network as Core does (decided 2026-11-12) — main **7332** (node 8332), testnet **17332** (18332), signet **37332** (38332), regtest **17443** (18443). The default is the mainnet port; the others are `--port`.
 - The host node (`--node-url` + its auth) is optional: without it, `getlatent` and `sendrawtransaction` answer with an error naming the missing piece and the pure index lookups still serve.
 - Seeds and sats travel as JSON numbers: a single land is bounded by `A_0` = 3e13 seeds and sats by 2.1e15, both inside JSON's exact-integer range (2^53). Chainwork is hex. txids are in display order (reversed), as everywhere in Core's RPC.
 
