@@ -107,6 +107,13 @@ class LmdbBirthStore:
             stats["bytes"] = stats["runs"] * 12       # schema-3 pairs
         return stats
 
+    def reload_stats(self) -> dict[str, int]:
+        """Fresh counters from the database. A reader's `stats` are
+        otherwise frozen at open while the writer moves on — a serving
+        process must reload, not trust its copy."""
+        self.stats = self._load_stats()
+        return self.stats
+
     def _read(self):
         """The open write transaction, or a fresh read view."""
         return self.txn if self.in_tx else self.env.begin()

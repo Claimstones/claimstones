@@ -169,7 +169,9 @@ class IndexQueries:
     # --- index lookups (no node) ---
 
     def getindexinfo(self) -> dict:
-        s = self.store.stats
+        # This store is a reader beside a live writer: reload, or the
+        # counters stay frozen at whatever moment this server started.
+        s = self.store.reload_stats()
         # The daemon records the chain it followed; an index from before
         # that record can only be mainnet's.
         chain = self.store.get_meta("chain") or "main"
