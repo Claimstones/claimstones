@@ -190,7 +190,8 @@ def main() -> int:
     ap.add_argument("--rpc-timeout", type=int, default=300)
     ap.add_argument("--rpc-wait-max", type=int, default=0,
                     help="seconds to wait for an absent node (0: forever)")
-    ap.add_argument("--db", default=r"D:\claimstones\build-prod\birth.lmdb")
+    ap.add_argument("--db", required=True,
+                    help="the LMDB birth index to keep at the tip")
     ap.add_argument("--poll", type=float, default=10.0,
                     help="seconds between best-hash polls at the tip")
     ap.add_argument("--undo-depth", type=int, default=1000,
