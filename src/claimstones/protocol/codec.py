@@ -59,11 +59,24 @@ MAGIC = bytes([OP_RETURN, OP_PUSHNUM_15])
 # every later spend and travels forward with the sats. It cannot be subtracted
 # out afterwards, nor recovered by overlaying a list of lands without replaying
 # the whole forward walk. So once the first land is applied there is no
-# land-free index except a rebuild from genesis -- seven to eight days,
-# measured on the MS-A2 -- whereas a copy stopped cleanly just below activation
-# turns that into a replay of only the blocks since. The window for taking it
-# closes the moment the chain reaches the height chosen here.
+# land-free index except a rebuild from genesis -- days, even as a fastbuild --
+# whereas a copy stopped cleanly just below activation turns that into a replay
+# of only the blocks since. The window for taking it closes the moment the
+# chain reaches the height chosen here.
 ACTIVATION_HEIGHT: int | None = None
+
+
+def activation_height(chain: str = "main") -> int | None:
+    """The activation height for a chain, as the node names it
+    (getblockchaininfo "chain": main/test/signet/regtest).
+
+    Mainnet is ACTIVATION_HEIGHT above, the one [decide]. Test chains
+    are active from height 1 (decided 2026-11-11): a test network
+    exists to exercise the protocol, and a land that cannot count tests
+    nothing. Height 1, not 0 -- a genesis coinbase is unspendable on
+    every chain, and 0 is reserved as the explicit "active since
+    genesis" spelling should mainnet ever want it."""
+    return ACTIVATION_HEIGHT if chain in ("main", "mainnet") else 1
 
 
 # ---------------------------------------------------------------------------

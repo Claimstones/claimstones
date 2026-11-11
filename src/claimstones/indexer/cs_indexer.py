@@ -237,7 +237,22 @@ def main() -> int:
     repaired = store.repair()
     if repaired:
         print(f"repaired: undid {repaired} half-applied block(s)", flush=True)
-    indexer = BirthIndexer(store, undo_depth=args.undo_depth)
+
+    # The chain decides the activation height (protocol/codec.py), so an
+    # index must never follow a node on another chain: the rows would be
+    # one chain's and the rule the other's.
+    chain = call("getblockchaininfo")["chain"]
+    known = store.get_meta("chain")
+    if known is None:
+        store.begin()
+        store.set_meta("chain", chain)
+        store.commit()
+    elif known != chain:
+        print(f"this index was built on {known!r} but the node serves "
+              f"{chain!r}; refusing", flush=True)
+        store.close()
+        return 1
+    indexer = BirthIndexer(store, undo_depth=args.undo_depth, chain=chain)
     blocks = RpcBlocks(rpc, timeout=args.rpc_timeout,
                        wait_max=args.rpc_wait_max)
     follower = ChainFollower(store, indexer, blocks, call,

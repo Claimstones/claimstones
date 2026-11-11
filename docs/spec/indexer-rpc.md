@@ -20,11 +20,12 @@ A wallet without its own Bitcoin node uses this API for its view — discovery, 
 
 ### `getindexinfo`
 
-The index's own state — height, counters, schema, and the activation height compiled into the code. `activation_height` is `null` while `ACTIVATION_HEIGHT` is undecided (`constants.md`); a wallet must treat `null` as "no envelope counts yet" and must not read it as 0, which is a real answer meaning active since genesis. The value reported is the constant the indexer compiles against, never a per-server setting: two servers that disagree here are running different code.
+The index's own state — height, counters, schema, the chain the index was built on, and that chain's activation height. The daemon records the chain (from its node's `getblockchaininfo`) in the index and refuses to follow a node on another one; the server reports it and the activation height the code holds for it (`constants.md`: test chains active from height 1; mainnet still [decide]). `activation_height` is `null` while mainnet's value is undecided; a wallet must treat `null` as "no envelope counts yet" and must not read it as 0, which is a real answer meaning active since genesis. The value reported is the constant the indexer compiles against, never a per-server setting: two servers on one chain that disagree here are running different code.
 
 ```json
 {"height": 972618, "utxos": 191234567, "runs": 1283456789,
- "schema": "3", "activation_height": null, "db_bytes": 73014444032}
+ "schema": "3", "chain": "main", "activation_height": null,
+ "db_bytes": 73014444032}
 ```
 
 ### `getbirthruns <txid> <vout>`

@@ -62,7 +62,7 @@ from claimstones.lineage.walker import (RETARGET_PERIOD, Rpc, RpcError,
                                         WorkTable, resolve_rpc_auth,
                                         resolve_rpc_cookie_path,
                                         seeds_from_work, work_scaled)
-from claimstones.protocol.codec import ACTIVATION_HEIGHT
+from claimstones.protocol.codec import activation_height
 
 DEFAULT_PORT = 7332
 
@@ -170,12 +170,16 @@ class IndexQueries:
 
     def getindexinfo(self) -> dict:
         s = self.store.stats
+        # The daemon records the chain it followed; an index from before
+        # that record can only be mainnet's.
+        chain = self.store.get_meta("chain") or "main"
         return {
             "height": self.store.last_height(),
             "utxos": s["utxos"],
             "runs": s["runs"],
             "schema": self.store.get_meta("schema"),
-            "activation_height": ACTIVATION_HEIGHT,
+            "chain": chain,
+            "activation_height": activation_height(chain),
             "db_bytes": self.store.file_size(),
         }
 

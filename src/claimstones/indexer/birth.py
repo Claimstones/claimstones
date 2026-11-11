@@ -56,7 +56,8 @@ from claimstones.bitcoin.txparse import Block, Tx, parse_block
 from claimstones.lineage.walker import (Rpc, RpcCookieWait, RpcError,
                                        RpcMethodMissing, resolve_rpc_auth,
                                        resolve_rpc_cookie_path, subsidy_sats)
-from claimstones.protocol.codec import ACTIVATION_HEIGHT, MAGIC, decipher
+from claimstones.protocol.codec import (ACTIVATION_HEIGHT, MAGIC,
+                                        activation_height, decipher)
 
 PLAIN = 0xFFFFFFFF  # run height meaning "landed already; no latent value"
 
@@ -472,11 +473,13 @@ def _has_envelope(tx: Tx) -> bool:
 
 
 class BirthIndexer:
-    def __init__(self, store: BirthStore, undo_depth: int = 1000):
+    def __init__(self, store: BirthStore, undo_depth: int = 1000,
+                 chain: str = "main"):
         self.store = store
-        # Consensus, and deliberately not an option: protocol/codec.py holds
-        # the constant and the reminder that goes with it.
-        self.activation_height = ACTIVATION_HEIGHT
+        # Consensus, and deliberately not an option: protocol/codec.py
+        # holds the per-chain rule, and `chain` comes from the node's
+        # getblockchaininfo, never from a flag.
+        self.activation_height = activation_height(chain)
         self.undo_depth = undo_depth
 
     def connect_block(self, block: Block) -> None:
