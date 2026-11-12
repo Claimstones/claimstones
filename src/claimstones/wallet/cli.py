@@ -19,7 +19,7 @@ verified locally (wallet/land.py, wallet-policy.md §Envelope scan).
     claimstones-wallet relay collect-....json signed.hex
     claimstones-wallet send bc1p... 12.34 2
     claimstones-wallet withdraw bc1q... 50000 2
-    claimstones-wallet address | backup
+    claimstones-wallet address | balance | backup
     ... -rpcurl http://... -rpccookie <path>/rpc.cookie -wallet <file>
 """
 
@@ -267,6 +267,29 @@ def do_receive(key: WalletKey, network: str, out=sys.stdout) -> int:
     return 0
 
 
+def do_balance(rpc: IndexerRpc, key: WalletKey, network: str,
+               out=sys.stdout) -> int:
+    """The wallet's own coins: the check report on the wallet address,
+    then the landed orchids the index serves — shown apart, as
+    wallet-policy.md §UTXO states asks. Until the ledger half exists
+    the server has no landed balances, and this says so."""
+    rc = do_check(rpc, network, [key.address(network)], out)
+    if rc:
+        return rc
+    try:
+        balance = rpc.getorchidbalance(key.script.hex())
+    except WalletRpcError:
+        out.write("  landed orchids: not served yet by this index"
+                  " (indexer-rpc.md §Planned)\n\n")
+        return 0
+    except RpcUnreachable as e:
+        print(f"no server: {e}", file=sys.stderr)
+        return 1
+    seeds = sum(u.get("seeds", 0) for u in balance.get("utxos", []))
+    out.write(f"  landed orchids {orchids(seeds)}\n\n")
+    return 0
+
+
 def do_backup(key: WalletKey, out=sys.stdout) -> int:
     out.write("\nyour wallet code — write it down somewhere safe; the"
               " code alone restores\nthe wallet, and anyone who knows"
@@ -503,6 +526,7 @@ def menu(rpc: IndexerRpc, network: str, wallet_path: str) -> int:
                  " watch-only"]
         if key is not None:
             items.append("  [a] receive — the wallet address")
+            items.append("  [l] balance — the wallet's own coins")
             items.append("  [k] claim — land the latent value on the"
                          " wallet address")
             items.append("  [s] send orchids    [w] withdraw bitcoin")
@@ -540,6 +564,9 @@ def menu(rpc: IndexerRpc, network: str, wallet_path: str) -> int:
             continue
         if choice in ("a", "receive", "address") and key is not None:
             do_receive(key, network)
+            continue
+        if choice in ("l", "balance") and key is not None:
+            do_balance(rpc, key, network)
             continue
         if choice in ("o", "backup") and key is not None:
             do_backup(key)
@@ -626,7 +653,7 @@ def main(argv=None) -> int:
                     help="the wallet file (default %(default)s)")
     ap.add_argument("command", nargs="?",
                     choices=["check", "claim", "collect", "relay", "send",
-                             "withdraw", "address", "backup"])
+                             "withdraw", "address", "balance", "backup"])
     ap.add_argument("lines", nargs="*", metavar="line",
                     help="check: addresses, xpubs or descriptors;"
                          " claim: fee rate (sat/vB);"
@@ -658,9 +685,9 @@ def main(argv=None) -> int:
              "collect": "collect <funding address> <fee rate>",
              "send": "send <address> <orchids> <fee rate>",
              "withdraw": "withdraw <address> <sats> <fee rate>",
-             "address": "address", "backup": "backup"}
+             "address": "address", "balance": "balance", "backup": "backup"}
     want = {"claim": 1, "collect": 2, "send": 3, "withdraw": 3,
-            "address": 0, "backup": 0}
+            "address": 0, "balance": 0, "backup": 0}
     if len(args.lines) != want[args.command]:
         print(f"usage: claimstones-wallet {usage[args.command]}",
               file=sys.stderr)
@@ -683,6 +710,8 @@ def main(argv=None) -> int:
         return 1
     if args.command == "address":
         return do_receive(key, args.network)
+    if args.command == "balance":
+        return do_balance(rpc, key, args.network)
     if args.command == "backup":
         return do_backup(key)
     if args.command == "claim":

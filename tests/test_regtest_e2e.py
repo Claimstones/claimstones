@@ -38,7 +38,7 @@ from claimstones.indexer.store_lmdb import LmdbBirthStore
 from claimstones.lineage.walker import Rpc, resolve_rpc_auth
 from claimstones.wallet.check import run_check
 from claimstones.wallet.cli import (
-    do_claim, do_collect, do_relay, do_send, do_withdraw,
+    do_balance, do_claim, do_collect, do_relay, do_send, do_withdraw,
 )
 from claimstones.wallet.keys import WalletKey
 from claimstones.wallet.rpc import IndexerRpc
@@ -138,6 +138,13 @@ class RegtestEndToEnd(unittest.TestCase):
             self.assertEqual(report.total_latent_sats, 100_000_000)
             self.assertGreater(report.total_seeds, 0)
             self.assertFalse(report.no_node)
+
+        with self.subTest("balance is the wallet's own check"):
+            out = io.StringIO()
+            rc = do_balance(self.wrpc, self.key, "regtest", out)
+            self.assertEqual(rc, 0, out.getvalue())
+            self.assertIn("100,000,000 sats", out.getvalue())
+            self.assertIn("landed orchids: not served yet", out.getvalue())
 
         with self.subTest("the server knows its chain"):
             info = self.wrpc.getindexinfo()
