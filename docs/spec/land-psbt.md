@@ -88,6 +88,7 @@ exists.
 No keys, no signing, no custody, no sweep of anything but the named
 address. No broadcast at launch — the signer's wallet does that;
 accepting the signed transaction back and forwarding it to Spec 6
-`sendrawtransaction` is **[decide]**. Collecting settled orchids (as
+`sendrawtransaction` is not offered at launch (decided 2026-11-12); adding
+it later needs no protocol change. Collecting settled orchids (as
 opposed to landing latent value) waits on per-outpoint balances from
 the index, exactly as the wallet's external form does.
