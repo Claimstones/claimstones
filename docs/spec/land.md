@@ -90,9 +90,11 @@ Outputs holding both orchid balance and unlanded sats are normal; every payment 
 
 ## Open items
 
-- Confirm there is no interaction between LAND and a pointer when the transaction also spends orchid-bearing inputs (expected: none, both feed the same unallocated balance).
+None.
 
 ## Closed
+
+- **LAND and POINTER** (opened 2026-09-17: confirm there is no interaction when a land also spends orchid-bearing inputs). Closed 2026-11-13: none. The landed amount joins the unallocated pot before the edicts run, and the pointer receives what the edicts leave, whether that came from inputs or from the land — `indexer.md` §Determinism step 5; in code `replay.py` `_index_tx` steps (4) to (6), tested by `test_land_with_pointer_and_edict` (land 500, edict 120 to output 1, pointer at 2 receives 380).
 
 - **Verification cost of deep lineages** (was [decide before mainnet], opened 2026-09-17). Closed 2026-10-25 by adopting the forward birth index: a land is a lookup, so no walk happens at land time and the hop count stops mattering for consensus. The alternatives considered and not taken were evidence-carrying lands (the wallet supplies the lineage, the indexer verifies it) and a per-land hop budget above which the land is void. A verifier that chooses to walk still pays the hop cost, which is why the cutoff survives as a verification parameter.
 - **Walk cutoff versus the forward index** (was [decide with the index]). Closed 2026-10-25. A forward index cannot reproduce a cutoff defined on the backward walk, so one of them had to stop being consensus. The cutoff did: valuation is now exact, N over all runs with one floor per land, and `DUST_SEEDS` is a walker parameter with no consensus role. See §Walk cutoff and §Independent validation.

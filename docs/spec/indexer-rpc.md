@@ -64,7 +64,14 @@ The method list with signatures.
 
 ## Planned, not yet served
 
-- **`getorchidbalance <address | outpoint>`** — settled token balances, once `ACTIVATION_HEIGHT` exists and the ledger half joins the daemon (the fused cs_indexer of the 2026-10-28 decision). Until then there are no balances to serve, and the method is absent rather than answering 0.
+- **`getorchidbalance <address | script_hex | {"txid":..., "vout":...}>`** — settled orchid balances from the ledger half (`indexer.md`), once it joins the daemon. Until then there are no balances to serve, and the method is absent rather than answering 0. Shape decided 2026-11-13, the one the CLI wallet already consumes: per-UTXO seeds for every unspent output of the script that holds a nonzero balance, and their sum.
+
+  ```json
+  {"height": 980123, "seeds": 12294,
+   "utxos": [{"txid": "...", "vout": 1, "seeds": 12294}]}
+  ```
+
+  With it `getindexinfo` gains `minted`, `burned` and `ledger_height` (the height from which balances exist).
 - **Confirmation status** for a relayed transaction (`gettxstatus`): mempool / confirming / settled / dropped, as the node sees it. **[decide]** whether a pure passthrough of the node's `getrawtransaction` verbosity is enough.
 - **[decide]** a `getworktable` (nbits per retarget period) so a node-less client can recompute valuation end to end from headers it verifies itself.
 
