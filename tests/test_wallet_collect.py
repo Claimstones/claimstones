@@ -69,7 +69,7 @@ class PlanCollectTests(unittest.TestCase):
         self.assertEqual(plan.psbt.tx.outputs[2].script_pubkey, FUNDING_SCRIPT)
 
     def test_refusals(self):
-        with self.assertRaisesRegex(TemplateError, "no coins"):
+        with self.assertRaisesRegex(TemplateError, "no UTXOs"):
             plan_collect(KEY.script, FUNDING, funding_rpc(), 1.0)
         zpub = ("zpub6rFR7y4Q2AijBEqTUquhVz398htDFrtymD9xYYfG1m4wAcvPhXNfE3EfH"
                 "1r1ADqtfSdVCToUG868RvUUkgDKf31mGDtKsAYz2oz2AGutZYs")

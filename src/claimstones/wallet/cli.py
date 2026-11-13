@@ -3,7 +3,7 @@
 The release-1 feature set of wallet-policy.md §What a wallet can do,
 grown one command at a time and now complete: Check (watch-only — any
 address, xpub or descriptor), Receive, Balance, Claim, Send, Withdraw,
-the external claim and collect (build the PSBT for coins another
+the external claim and collect (build the PSBT for UTXOs another
 wallet holds; that wallet signs and broadcasts), and backup by wallet
 code. The wallet file can be locked under a password; the wallet code
 alone restores either way.
@@ -54,6 +54,12 @@ _SHRINKS = "unclaimed orchids do not expire, but shrink about 3 % a month"
 _RULE = "-" * 54
 
 
+def _utxos(n: int) -> str:
+    """UTXO, not coin: the CLI reader knows the word, and "1 coin" reads
+    as a quantity (decided 2026-11-13)."""
+    return f"{n:,} UTXO{'s' if n != 1 else ''}"
+
+
 def _abbr(address: str) -> str:
     """An address as a person recognizes it: head, dots, tail."""
     return address if len(address) <= 16 else f"{address[:6]}....{address[-5:]}"
@@ -66,7 +72,7 @@ def _short(outpoint: str) -> str:
 
 def print_report(report: CheckReport, out=sys.stdout) -> None:
     w = out.write
-    w(f"\n{len(report.utxos)} coin{'s' if len(report.utxos) != 1 else ''} "
+    w(f"\n{_utxos(len(report.utxos))} "
       f"found ({report.branches} branch{'es' if report.branches != 1 else ''}, "
       f"{report.scripts} script{'s' if report.scripts != 1 else ''} asked)\n")
     if not report.utxos:
@@ -91,7 +97,7 @@ def print_report(report: CheckReport, out=sys.stdout) -> None:
         w(f"  (valued at height {report.valued_at_height:,}; {_SHRINKS})\n")
     if report.no_node:
         w("  (the server has no host node, so the orchids to be landed are"
-          " not shown; the coins and their runs are exact)\n")
+          " not shown; the UTXOs and their runs are exact)\n")
     w("\n")
 
 
@@ -120,8 +126,8 @@ def print_claim_plan(plan: ClaimPlan, out=sys.stdout,
     w(f"\n{_RULE}\nOn this wallet's address:\n")
     w(f"{s.input_sats:,} sats in, {plan.latent_sats:,} of them unclaimed\n")
     if plan.skipped:
-        w(f"({plan.skipped} already-claimed"
-          f" coin{'s' if plan.skipped != 1 else ''} stay untouched)\n")
+        w(f"({_utxos(plan.skipped)} on the address with nothing left to"
+          " land stay out of this transaction)\n")
     if plan.seeds is not None:
         w(f"est. orchids to be landed: {orchids(plan.seeds)} (valued at"
           f" height {plan.valued_at_height:,}); they land on this wallet's"
@@ -223,7 +229,7 @@ def do_collect(rpc: IndexerRpc, key: WalletKey, network: str,
     w(f"Remaining {s.return_sats:,} sats will return to {short}\n")
     w(f"\nCheck, sign & broadcast in the wallet that holds address {short}\n")
     w("to raise the fee later, use CPFP in your other wallet: spend the"
-      " returned coin at a higher rate\n")
+      " returned UTXO at a higher rate\n")
     w("do not use Increase fee (RBF): a wallet that did not build this"
       " transaction rebuilds it and drops the envelope — the claim"
       " silently does not happen\n")
@@ -240,7 +246,7 @@ def do_receive(key: WalletKey, network: str, out=sys.stdout) -> int:
 
 def do_balance(rpc: IndexerRpc, key: WalletKey, network: str,
                out=sys.stdout) -> int:
-    """The wallet's own coins: the check report on the wallet address,
+    """The wallet's own UTXOs: the check report on the wallet address,
     then the landed orchids the index serves — shown apart, as
     wallet-policy.md §UTXO states asks. Until the ledger half exists
     the server has no landed balances, and this says so."""
@@ -273,9 +279,9 @@ def print_send_plan(plan: SendPlan, out=sys.stdout) -> None:
     w = out.write
     s = plan.summary
     w(f"\nsend {orchids(s.amount_seeds)} orchids to {plan.recipient}\n")
-    w(f"  {len(s.inputs)} coin{'s' if len(s.inputs) != 1 else ''} in,"
+    w(f"  {_utxos(len(s.inputs))} in,"
       f" carrying {orchids(s.input_seeds)} orchids settled\n")
-    w(f"  the recipient's coin carries {s.carrier_sats} sats; the"
+    w(f"  the recipient's UTXO carries {s.carrier_sats} sats; the"
       f" {s.fee_sats:,}-sat miner fee\n  comes from this wallet's own"
       f" sats; {s.change_sats:,} sats and the remaining\n  orchids"
       " return to the wallet address\n")
@@ -325,7 +331,7 @@ def print_withdraw_plan(plan: WithdrawPlan, out=sys.stdout) -> None:
     w = out.write
     s = plan.summary
     w(f"\nwithdraw {s.amount_sats:,} sats to {plan.destination}\n")
-    w(f"  {len(s.inputs)} coin{'s' if len(s.inputs) != 1 else ''} in,"
+    w(f"  {_utxos(len(s.inputs))} in,"
       f" fee {s.fee_sats:,} sats, {s.change_sats:,} sats stay on the"
       " wallet address\n")
     w("  your orchids stay in this wallet; only bitcoin leaves\n")
@@ -507,12 +513,12 @@ def menu(rpc: IndexerRpc, network: str, wallet_path: str) -> int:
                      " watch-only"]
             if key is not None:
                 items.append("  [a] receive — the wallet address")
-                items.append("  [l] balance — the wallet's own coins")
+                items.append("  [l] balance — the wallet's own UTXOs")
                 items.append("  [k] claim — land the unclaimed orchids on"
                              " the wallet address")
                 items.append("  [s] send orchids    [w] withdraw bitcoin")
                 items.append("  [e] external claim and collect — harvest"
-                             " coins another wallet holds")
+                             " UTXOs another wallet holds")
                 items.append("  [o] backup — show the wallet code")
             else:
                 items.append("  [n] new wallet    [r] restore from wallet"

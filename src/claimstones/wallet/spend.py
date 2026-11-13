@@ -92,7 +92,7 @@ def _address_script(address: str, network: str | None) -> bytes:
 def _wallet_coins(key: WalletKey, rpc: IndexerRpc) -> list[dict]:
     utxos = rpc.getaddressutxos(key.script.hex())
     if not utxos:
-        raise TemplateError("the wallet address holds no coins")
+        raise TemplateError("the wallet address holds no UTXOs")
     return utxos
 
 

@@ -121,7 +121,7 @@ def script_type(script: bytes) -> str:
         return "pkh"
     raise TemplateError(
         "an input pays a script this builder cannot spend; only single-key "
-        "coins (taproot, segwit, legacy) can fund a land")
+        "UTXOs (taproot, segwit, legacy) can fund a land")
 
 
 def _check_key_matches(kind: str, pubkey: bytes, script: bytes) -> None:
@@ -136,7 +136,7 @@ def _check_key_matches(kind: str, pubkey: bytes, script: bytes) -> None:
     else:   # pkh
         ok = len(pubkey) == 33 and hash160(pubkey) == script[3:23]
     if not ok:
-        raise TemplateError("the given key does not match the coin's script")
+        raise TemplateError("the given key does not match the UTXO's script")
 
 
 # ---------------------------------------------------------------------------
@@ -179,7 +179,7 @@ def _check_prev_tx(f: FundingInput) -> None:
     if f.prev_vout >= len(prev.outputs) or prev.outputs[f.prev_vout] != f.utxo:
         raise TemplateError(
             f"the previous transaction given for {f.outpoint} does not "
-            "pay that coin")
+            "pay that UTXO")
 
 
 def _fill_input(psbt: Psbt, n: int, f: FundingInput, kind: str) -> None:
@@ -190,7 +190,7 @@ def _fill_input(psbt: Psbt, n: int, f: FundingInput, kind: str) -> None:
         inp.non_witness_utxo = f.prev_tx
     elif kind == "pkh":
         raise TemplateError(
-            f"{f.outpoint} is a legacy coin; its signer needs the raw "
+            f"{f.outpoint} is a legacy UTXO; its signer needs the raw "
             "previous transaction and none was given")
     if f.pubkey is None:
         return
@@ -203,7 +203,7 @@ def _fill_input(psbt: Psbt, n: int, f: FundingInput, kind: str) -> None:
                 compact_size(0) + _origin_value(f.origin))
         return
     if len(f.pubkey) != 33:
-        raise TemplateError("an x-only key fits only a taproot coin")
+        raise TemplateError("an x-only key fits only a taproot UTXO")
     if kind == "sh(wpkh)":
         inp.redeem_script = bytes([0x00, 0x14]) + hash160(f.pubkey)
     if f.origin is not None:
@@ -216,7 +216,7 @@ def build_claim(inputs: list[FundingInput], wallet_script: bytes,
     outputs — the LAND-only envelope, then the wallet's own address with
     all input sats minus the miner fee."""
     if not inputs:
-        raise TemplateError("nothing to claim: no coins given")
+        raise TemplateError("nothing to claim: no UTXOs given")
     if script_type(wallet_script) != "tr":
         raise TemplateError("the wallet address must be taproot")
     if taproot_output_key(internal_key) != wallet_script[2:]:
@@ -225,7 +225,7 @@ def build_claim(inputs: list[FundingInput], wallet_script: bytes,
         if f.utxo.script_pubkey != wallet_script:
             raise TemplateError(
                 f"{f.outpoint} does not pay the wallet's own address; "
-                "a claim spends only the wallet's coins")
+                "a claim spends only the wallet's UTXOs")
 
     input_sats = sum(f.utxo.value for f in inputs)
     outputs = [TxOut(0, land_script()), TxOut(0, wallet_script)]
@@ -234,7 +234,7 @@ def build_claim(inputs: list[FundingInput], wallet_script: bytes,
     change = input_sats - fee
     if change < _DUST["tr"]:
         raise TemplateError(
-            f"the coins are too small: {input_sats} sats minus the "
+            f"the UTXOs are too small: {input_sats} sats minus the "
             f"{fee}-sat fee leaves {change}, below the {_DUST['tr']}-sat dust bound")
     outputs[1] = TxOut(change, wallet_script)
 
@@ -255,7 +255,7 @@ def build_collect(inputs: list[FundingInput], orchids_script: bytes,
     it came from. One funding script per transaction — the return output
     is then always unambiguous (spec/land-psbt.md)."""
     if not inputs:
-        raise TemplateError("nothing to land: no coins given")
+        raise TemplateError("nothing to land: no UTXOs given")
     kinds = [script_type(f.utxo.script_pubkey) for f in inputs]
     for f in inputs:
         if f.utxo.script_pubkey != return_script:
@@ -278,7 +278,7 @@ def build_collect(inputs: list[FundingInput], orchids_script: bytes,
     dust = _DUST[kinds[0]]
     if returned < dust:
         raise TemplateError(
-            f"the coins are too small: {input_sats} sats minus the "
+            f"the UTXOs are too small: {input_sats} sats minus the "
             f"{CARRIER_SATS}-sat carrier and the {fee}-sat fee leaves "
             f"{returned}, below the {dust}-sat dust bound")
     outputs[2] = TxOut(returned, return_script)
@@ -300,7 +300,7 @@ def _check_fee_bound(fee: int, input_sats: int) -> None:
     if fee * 5 > input_sats:
         raise TemplateError(
             f"the fee ({fee} sats) is more than a fifth of the input "
-            f"sats ({input_sats}); use a lower fee rate or bigger coins")
+            f"sats ({input_sats}); use a lower fee rate or bigger UTXOs")
 
 
 def _check_envelope(tx: Transaction) -> None:
@@ -374,11 +374,11 @@ def verify_collect(tx: Transaction, prevouts: list[TxOut],
     input_scripts = {p.script_pubkey for p in prevouts}
     if tx.outputs[2].script_pubkey not in input_scripts:
         raise TemplateError(
-            "output 2 does not return to the address the coins came from")
+            "output 2 does not return to the address the UTXOs came from")
     if orchids_script in input_scripts:
         raise TemplateError(
             "an input pays the orchid wallet; a collect spends only "
-            "external coins")
+            "external UTXOs")
     input_sats = _check_inputs_named(tx, prevouts, summary.inputs)
     returned = tx.outputs[2].value
     if (input_sats != summary.input_sats

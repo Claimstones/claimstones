@@ -142,7 +142,7 @@ class ReportTests(unittest.TestCase):
         out = io.StringIO()
         rc = do_check(FakeRpc({}), "main", [BIP84_FIRST], out)
         self.assertEqual(rc, 0)
-        self.assertIn("0 coins found", out.getvalue())
+        self.assertIn("0 UTXOs found", out.getvalue())
 
 
 if __name__ == "__main__":

@@ -116,7 +116,7 @@ class PlanClaimTests(unittest.TestCase):
                          plan.summary.change_sats + plan.summary.fee_sats)
 
     def test_nothing_to_claim(self):
-        with self.assertRaisesRegex(TemplateError, "holds no coins"):
+        with self.assertRaisesRegex(TemplateError, "holds no UTXOs"):
             plan_claim(KEY, wallet_rpc(), 1.0)
         with self.assertRaisesRegex(TemplateError, "already claimed"):
             plan_claim(KEY, wallet_rpc(utxo(1, 20_000, latent=0)), 1.0)
@@ -175,7 +175,7 @@ class DoClaimTests(unittest.TestCase):
         self.assertIn("claiming does not spend your bitcoin;"
                       " you pay a network fee", text)
         self.assertIn("est. orchids to be landed: 50.00", text)   # 5000 seeds
-        self.assertIn("1 already-claimed coin stay", text)
+        self.assertIn("(1 UTXO on the address with nothing left to land", text)
         self.assertNotIn("worth", text)
         self.assertNotIn("production cost", text)
 

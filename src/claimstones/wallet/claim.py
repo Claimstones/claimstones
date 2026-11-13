@@ -46,8 +46,8 @@ def plan_claim(key: WalletKey, rpc: IndexerRpc, fee_rate: float) -> ClaimPlan:
     coins = [u for u in utxos if u["latent_sats"] > 0]
     if not coins:
         raise TemplateError(
-            "every coin on the wallet address is already claimed" if utxos
-            else "the wallet address holds no coins")
+            "every UTXO on the wallet address is already claimed" if utxos
+            else "the wallet address holds no UTXOs")
 
     inputs = [FundingInput(bytes.fromhex(u["txid"])[::-1], u["vout"],
                            TxOut(u["sats"], key.script))

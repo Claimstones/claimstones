@@ -57,7 +57,7 @@ def plan_collect(orchids_script: bytes, funding_address: str,
 
     utxos = rpc.getaddressutxos(script_hex)
     if not utxos:
-        raise TemplateError(f"no coins on {funding_address}")
+        raise TemplateError(f"no UTXOs on {funding_address}")
     inputs = [FundingInput(bytes.fromhex(u["txid"])[::-1], u["vout"],
                            TxOut(u["sats"], derived.script))
               for u in utxos]
