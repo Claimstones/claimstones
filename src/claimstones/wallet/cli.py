@@ -539,23 +539,32 @@ def menu(rpc: IndexerRpc, network: str, wallet_path: str) -> int:
     print(f"claimstones wallet — {rpc.url}, {state}")
     if key is not None:
         print(f"wallet address: {key.address(network)}")
+    # The menu prints once, and again on [m] or when its items change
+    # (a wallet appears); between commands a one-line prompt keeps the
+    # command's output on screen.
+    show_menu = True
     while True:
-        items = ["  [c] check any bitcoin — address, xpub or descriptor,"
-                 " watch-only"]
-        if key is not None:
-            items.append("  [a] receive — the wallet address")
-            items.append("  [l] balance — the wallet's own coins")
-            items.append("  [k] claim — land the unclaimed orchids on the"
-                         " wallet address")
-            items.append("  [s] send orchids    [w] withdraw bitcoin")
-            items.append("  [e] external claim and collect — harvest coins"
-                         " another wallet holds")
-            items.append("  [b] broadcast a signed collect")
-            items.append("  [o] backup — show the wallet code")
+        if show_menu:
+            items = ["  [c] check any bitcoin — address, xpub or descriptor,"
+                     " watch-only"]
+            if key is not None:
+                items.append("  [a] receive — the wallet address")
+                items.append("  [l] balance — the wallet's own coins")
+                items.append("  [k] claim — land the unclaimed orchids on"
+                             " the wallet address")
+                items.append("  [s] send orchids    [w] withdraw bitcoin")
+                items.append("  [e] external claim and collect — harvest"
+                             " coins another wallet holds")
+                items.append("  [b] broadcast a signed collect")
+                items.append("  [o] backup — show the wallet code")
+            else:
+                items.append("  [n] new wallet    [r] restore from wallet"
+                             " code")
+            items.append("  [q] quit")
+            print("\n" + "\n".join(items))
+            show_menu = False
         else:
-            items.append("  [n] new wallet    [r] restore from wallet code")
-        items.append("  [q] quit")
-        print("\n" + "\n".join(items))
+            print("\nWaiting for next command, [q] quit   [m] show menu")
         try:
             choice = input("> ").strip().lower()
         except (EOFError, KeyboardInterrupt):
@@ -563,6 +572,9 @@ def menu(rpc: IndexerRpc, network: str, wallet_path: str) -> int:
             return 0
         if choice in ("q", "quit", "exit"):
             return 0
+        if choice in ("m", "menu"):
+            show_menu = True
+            continue
         if choice in ("c", "check"):
             lines = _prompt_lines()
             if lines:
@@ -650,9 +662,11 @@ def menu(rpc: IndexerRpc, network: str, wallet_path: str) -> int:
             continue
         if choice in ("n", "new") and key is None:
             key = _create_wallet(wallet_path, network)
+            show_menu = key is not None
             continue
         if choice in ("r", "restore") and key is None:
             key = _restore_wallet(wallet_path, network)
+            show_menu = key is not None
             continue
         if choice:
             print(f"no such command: {choice}")
