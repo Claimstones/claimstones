@@ -63,6 +63,11 @@ PLAIN = 0xFFFFFFFF  # run height meaning "landed already; no latent value"
 
 BIP30_HEIGHTS = {91842, 91880}   # duplicate coinbase txids (BIP30)
 
+# The counters both stores keep in meta (reporting, never consensus).
+# minted/burned are the ledger half's (docs/spec/indexer.md §Derived).
+STAT_KEYS = ("utxos", "runs", "bytes", "script_bytes", "txs", "lands",
+             "minted", "burned")
+
 Run = tuple[int, int]   # (birth height or PLAIN, sat count)
 
 
@@ -237,8 +242,7 @@ class BirthStore:
                 f"start a fresh database (delete the file and its -wal/-shm)")
         self.commit_every = commit_every
         self.in_tx = False
-        self.stats = {k: int(self.get_meta(k) or 0) for k in
-                      ("utxos", "runs", "bytes", "script_bytes", "txs", "lands")}
+        self.stats = {k: int(self.get_meta(k) or 0) for k in STAT_KEYS}
 
     def has_script_index(self) -> bool:
         return self.db.execute(
