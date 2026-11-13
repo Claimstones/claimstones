@@ -220,7 +220,9 @@ land-free build.
    runs)` in key order, which is exactly the `utxo` sub-database's cursor
    order — not over `data.mdb`, whose page layout differs between two correct
    environments (a compacted copy and its source hold the same rows in
-   different pages). This is the same digest the fastbuild acceptance gate
+   different pages). `python -m claimstones.indexer.snapshot_digest <dir>`
+   computes it (read-only, no lock file) and checks the row count against
+   `meta.utxos`. This is the same digest the fastbuild acceptance gate
    uses (`spec/fastbuild.md` §Verification), and it is the fingerprint that
    makes damage detectable years later. The sat-total identity is not a
    substitute: a total admits compensating errors, one row high and another
