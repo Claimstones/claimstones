@@ -35,7 +35,7 @@ class ClaimPlan:
     psbt: Psbt
     summary: ClaimSummary
     latent_sats: int            # what the claim lands
-    seeds: int | None           # est. production cost; None without a node
+    seeds: int | None           # est. orchids to be landed; None without a node
     valued_at_height: int | None
     skipped: int                # coins with nothing left to land, left out
 

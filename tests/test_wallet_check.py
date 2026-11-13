@@ -115,10 +115,11 @@ class ReportTests(unittest.TestCase):
         out = io.StringIO()
         print_report(run_check([BIP84_FIRST], rpc), out)
         text = out.getvalue()
-        self.assertIn("est. production cost 50.00 orchids", text)   # 5000 seeds
-        self.assertIn("shrinks about 3 % a month", text)
-        # The figure is a cost, never a "worth" (wallet-policy §Wording).
+        self.assertIn("est. orchids to be landed 50.00", text)   # 5000 seeds
+        self.assertIn("shrink about 3 % a month", text)
+        # Orchids are amounts, never a "worth" (wallet-policy §Wording).
         self.assertNotIn("worth", text)
+        self.assertNotIn("production cost", text)
 
     def test_no_node_wording(self):
         receive, _ = zpub_scripts()
@@ -128,7 +129,7 @@ class ReportTests(unittest.TestCase):
         print_report(run_check([BIP84_FIRST], rpc), out)
         text = out.getvalue()
         self.assertIn("no host node", text)
-        self.assertNotIn("est. production cost", text)
+        self.assertNotIn("est. orchids to be landed 5", text)
 
     def test_do_check_refuses_bad_input(self):
         rc = do_check(FakeRpc({}), "main", ["xprv9s21ZrQH143K3QTDL4LXw2F7HEK3"

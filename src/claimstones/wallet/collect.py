@@ -41,7 +41,7 @@ class CollectPlan:
     funding_address: str
     orchids_script: bytes
     latent_sats: int
-    seeds: int | None           # est. production cost; None without a node
+    seeds: int | None           # est. orchids to be landed; None without a node
     valued_at_height: int | None
 
 

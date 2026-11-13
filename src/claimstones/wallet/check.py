@@ -24,7 +24,7 @@ class CheckUtxo:
     outpoint: str               # txid:vout, display order
     sats: int
     latent_sats: int
-    seeds: int | None           # est. production cost; None without a node
+    seeds: int | None           # est. orchids to be landed; None without a node
     source: str                 # the pasted line this coin was found under
     address: str | None         # the derived address, where one exists
 

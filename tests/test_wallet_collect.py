@@ -187,11 +187,13 @@ class CliCollectTests(unittest.TestCase):
             self.assertEqual(len(rpc.sent), 1)
             self.assertIn("collect sent: ", out2.getvalue())
         text = out.getvalue()
-        self.assertIn("the signer pays the miner fee plus 330 sats", text)
+        self.assertIn("The signer pays the miner fee (2 sat/vB) plus 330 sats",
+                      text)
         self.assertIn("Increase fee (RBF) or CPFP", text)
         self.assertIn("never edit the outputs", text)
-        self.assertIn("est. production cost 50.00 orchids", text)   # 5000 seeds
+        self.assertIn("est. orchids to be landed: 50.00", text)   # 5000 seeds
         self.assertNotIn("worth", text)
+        self.assertNotIn("production cost", text)
 
     def test_relay_refuses_tamper(self):
         rpc = funding_rpc(utxo(1, 50_000))

@@ -174,16 +174,17 @@ class DoClaimTests(unittest.TestCase):
         text = out.getvalue()
         self.assertIn("claiming does not spend your bitcoin;"
                       " you pay a network fee", text)
-        self.assertIn("est. production cost 50.00 orchids", text)   # 5000 seeds
+        self.assertIn("est. orchids to be landed: 50.00", text)   # 5000 seeds
         self.assertIn("1 already-claimed coin stay", text)
         self.assertNotIn("worth", text)
+        self.assertNotIn("production cost", text)
 
     def test_no_node_wording(self):
         plan = plan_claim(KEY, wallet_rpc(utxo(1, 50_000), node=False), 1.0)
         out = io.StringIO()
         print_claim_plan(plan, out)
         self.assertIn("no host node", out.getvalue())
-        self.assertNotIn("est. production cost", out.getvalue())
+        self.assertNotIn("est. orchids to be landed:", out.getvalue())
 
 
 if __name__ == "__main__":

@@ -11,12 +11,12 @@ The release-1 feature set, built on the index queries of `indexer-rpc.md` (or a 
 - **Receive orchids and bitcoin.** One taproot address per garden, reused. Bitcoin sent to the address becomes claimable orchids; orchids sent by another wallet arrive as settled balance.
 - **Send orchids.** The send template below, built and signed by the wallet; the miner fee comes from the wallet's own sats. Nothing in release 1 charges orchids. (The sponsored send of the retired server — a sponsor adding its sats and charging an orchid fee — left the project 2026-11-03; it is a product a wallet-and-server operator may build on a mature market, not protocol.)
 - **Discover and claim** latent orchids on the wallet address (Check + Claim).
-- **Check any bitcoin**: any address, xpub or descriptor, watch-only; per UTXO: sats, latent orchids at W(tip), "est. production cost".
+- **Check any bitcoin**: any address, xpub or descriptor, watch-only; per UTXO: sats, unclaimed sats, "est. orchids to be landed" at W(tip).
 - **Claim and collect via external PSBT** for coins the wallet does not hold keys for. **Decided 2026-10-04: harvest model**, extended 2026-10-30 to collect: one transaction lands the coins' latent value and moves any orchids already on them to the wallet address, on `carrier_sats` (330, §Transaction templates), and returns the bitcoin to the address it came from: the user harvests orchids without disturbing their holdings, and the returned coins are clean. The confirmation shown before signing must state plainly what the signer pays: the miner fee plus 330 sats. Template: §Transaction templates; checks: `verifyCollect` below. This supersedes the watched-address model in `release-1-scope.md`; no watched addresses are needed, the orchids arrive as ordinary wallet balance.
 - **Withdraw bitcoin** (decided 2026-10-04). The use case: a user moves bitcoin onto the wallet address only to claim, then sends it back to their regular bitcoin wallet. The withdraw transaction always carries an envelope with a POINTER to the wallet's own change output, so every settled orchid stays; only plain bitcoin leaves. The envelope is mandatory: without one, `envelope.md` sweeps the whole orchid balance to the first non-OP_RETURN output — the destination. Server builds, wallet verifies (`verifyWithdraw`: pointer at the wallet's own output, no edicts to foreign outputs, no LAND, sats out equal amount + fee) and signs. Caution the envelope cannot cover: *latent* value rides the sats themselves (FIFO lineage), so withdrawing unclaimed sats gives their latent value to the destination — when claimable > 0 the wallet must ask "claim first?" before confirming.
 - **Backup and restore by wallet code** (below). No seed phrase.
 
-Release 2, design notes only: **Exchange** (`swap-level2.md`) — quotes always worded "est. production cost", suggestive only, never "value"; countersign the server's matched PSBT within `quote_ttl_seconds`; both legs decoded, refuse LAND in a swap.
+Release 2, design notes only: **Exchange** (`swap-level2.md`) — quotes worded as amounts per §Wording, suggestive only, never "value"; countersign the server's matched PSBT within `quote_ttl_seconds`; both legs decoded, refuse LAND in a swap.
 
 ## Keys and address
 
@@ -72,7 +72,7 @@ For the external claim and collect (2026-10-30, `verifyCollect`, not built; temp
 
 ## Wording
 
-"est. production cost", never "value" or "worth". Unclaimed value "does not expire, but shrinks about 3 % a month". Claiming "does not spend your bitcoin; you pay a network fee". On a withdraw: "your orchids stay in this wallet; only bitcoin leaves". With an exported claim-and-collect PSBT: "to raise the fee later, use Increase fee (RBF) or CPFP in your other wallet; never edit the outputs".
+Orchids are amounts (decided 2026-11-13): "est. orchids to be landed", never "value", "worth" or "production cost" — that phrase belongs to the issuance function alone (`constants.md`). A plan reads: sats in and unclaimed, the orchids to be landed (valued at height N), what is paid, what returns. Unclaimed orchids "do not expire, but shrink about 3 % a month". Claiming "does not spend your bitcoin; you pay a network fee". On a withdraw: "your orchids stay in this wallet; only bitcoin leaves". With an exported claim-and-collect PSBT: "to raise the fee later, use Increase fee (RBF) or CPFP in your other wallet; never edit the outputs".
 
 Sats a walk left unresolved (2026-09-21): "not claimable" when the consensus walk cutoff dropped them (a claim goes ahead; at most the shown upper bound is forgone), "not claimable yet" when the server's walk budget ran out (the UTXO waits until it has been walked). The "yet" is the difference: the first case never changes, the second does.
 

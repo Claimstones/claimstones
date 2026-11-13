@@ -52,7 +52,7 @@ The runs valued in seeds at the node's current tip: `seeds = floor(A_0 · N / (W
                            "sats": 5000, "latent_sats": 5000, "seeds": 929}]}
 ```
 
-Wording for display is the wallet's business (`wallet-policy.md` §Wording): always "est. production cost", never "value".
+Wording for display is the wallet's business (`wallet-policy.md` §Wording): "est. orchids to be landed", never "value" or "production cost".
 
 ### `sendrawtransaction <hex>`
 

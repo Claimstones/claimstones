@@ -54,7 +54,13 @@ from claimstones.wallet.spend import (
 DEFAULT_WALLET = os.path.join(os.path.expanduser("~"),
                               ".claimstones", "wallet.code")
 
-_SHRINKS = "unclaimed value does not expire, but shrinks about 3 % a month"
+_SHRINKS = "unclaimed orchids do not expire, but shrink about 3 % a month"
+_RULE = "-" * 54
+
+
+def _abbr(address: str) -> str:
+    """An address as a person recognizes it: head, dots, tail."""
+    return address if len(address) <= 16 else f"{address[:6]}....{address[-5:]}"
 
 
 def _short(outpoint: str) -> str:
@@ -76,20 +82,20 @@ def print_report(report: CheckReport, out=sys.stdout) -> None:
             source = row.source
             label = source if len(source) <= 64 else source[:61] + "..."
             w(f"\n  {label}\n")
-        cost = (f"est. production cost {orchids(row.seeds)} orchids"
+        cost = (f"est. orchids to be landed {orchids(row.seeds)}"
                 if row.seeds is not None else "")
         w(f"    {_short(row.outpoint):<32} {row.sats:>12,} sats"
           f" {row.latent_sats:>12,} unclaimed   {cost}\n")
     w(f"\n  total {report.total_sats:>29,} sats"
       f" {report.total_latent_sats:>12,} unclaimed")
     if report.total_seeds is not None:
-        w(f"   est. production cost {orchids(report.total_seeds)} orchids")
+        w(f"   est. orchids to be landed {orchids(report.total_seeds)}")
     w("\n")
     if report.valued_at_height is not None:
         w(f"  (valued at height {report.valued_at_height:,}; {_SHRINKS})\n")
     if report.no_node:
-        w("  (the server has no host node, so production cost is not shown;"
-          " the coins and their runs are exact)\n")
+        w("  (the server has no host node, so the orchids to be landed are"
+          " not shown; the coins and their runs are exact)\n")
     w("\n")
 
 
@@ -109,23 +115,28 @@ def do_check(rpc: IndexerRpc, network: str, lines: list[str], out=sys.stdout) ->
     return 0
 
 
-def print_claim_plan(plan: ClaimPlan, out=sys.stdout) -> None:
+def print_claim_plan(plan: ClaimPlan, out=sys.stdout,
+                     fee_rate: float | None = None) -> None:
+    """The same shape as the collect plan (wallet-policy.md §Wording):
+    sats in and unclaimed, the orchids to be landed, what is paid."""
     w = out.write
     s = plan.summary
-    n = len(s.inputs)
-    w(f"\nclaim: {n} coin{'s' if n != 1 else ''}, {s.input_sats:,} sats,"
-      f" {plan.latent_sats:,} of them unclaimed\n")
+    w(f"\n{_RULE}\nOn this wallet's address:\n")
+    w(f"{s.input_sats:,} sats in, {plan.latent_sats:,} of them unclaimed\n")
     if plan.skipped:
-        w(f"  ({plan.skipped} already-claimed"
+        w(f"({plan.skipped} already-claimed"
           f" coin{'s' if plan.skipped != 1 else ''} stay untouched)\n")
     if plan.seeds is not None:
-        w(f"  est. production cost {orchids(plan.seeds)} orchids"
-          f" (valued at height {plan.valued_at_height:,})\n")
+        w(f"est. orchids to be landed: {orchids(plan.seeds)} (valued at"
+          f" height {plan.valued_at_height:,}); they land on this wallet's"
+          " address\n")
     else:
-        w("  (the server has no host node, so production cost is not shown)\n")
-    w(f"  fee {s.fee_sats:,} sats; {s.change_sats:,} sats return to the"
-      " wallet address\n")
-    w("  claiming does not spend your bitcoin; you pay a network fee\n")
+        w("(the server has no host node, so the orchids to be landed are"
+          " not shown)\n")
+    rate = f" ({fee_rate:g} sat/vB)" if fee_rate is not None else ""
+    w(f"\nThe miner fee{rate}: {s.fee_sats:,} sats; remaining"
+      f" {s.change_sats:,} sats return to this wallet's address\n")
+    w("claiming does not spend your bitcoin; you pay a network fee\n")
 
 
 def do_claim(rpc: IndexerRpc, key: WalletKey, fee_rate: float,
@@ -141,7 +152,7 @@ def do_claim(rpc: IndexerRpc, key: WalletKey, fee_rate: float,
     except RpcUnreachable as e:
         print(f"no server: {e}", file=sys.stderr)
         return 1
-    print_claim_plan(plan, out)
+    print_claim_plan(plan, out, fee_rate)
     try:
         answer = ask("claim? [y/N] ")
     except EOFError:
@@ -167,22 +178,19 @@ def do_claim(rpc: IndexerRpc, key: WalletKey, fee_rate: float,
 
 
 def print_collect_plan(plan: CollectPlan, out=sys.stdout) -> None:
+    """What is on the funding address and what landing it yields; what
+    the signer pays follows the file names, in do_collect."""
     w = out.write
     s = plan.summary
-    n = len(s.inputs)
-    w(f"\nclaim and collect: {n} coin{'s' if n != 1 else ''} on "
-      f"{plan.funding_address}\n")
-    w(f"  {s.input_sats:,} sats in, {plan.latent_sats:,} of them unclaimed\n")
+    w(f"\n{_RULE}\nOn address {plan.funding_address}:\n")
+    w(f"{s.input_sats:,} sats in, {plan.latent_sats:,} of them unclaimed\n")
     if plan.seeds is not None:
-        w(f"  est. production cost {orchids(plan.seeds)} orchids"
-          f" (valued at height {plan.valued_at_height:,});"
-          " they arrive on this wallet's address\n")
+        w(f"est. orchids to be landed: {orchids(plan.seeds)} (valued at"
+          f" height {plan.valued_at_height:,}); they arrive on this"
+          " wallet's address\n")
     else:
-        w("  (the server has no host node, so production cost is not shown)\n")
-    w(f"  the signer pays the miner fee plus {s.carrier_sats} sats:"
-      f" {s.fee_sats:,} + {s.carrier_sats} = "
-      f"{s.fee_sats + s.carrier_sats:,} sats\n")
-    w(f"  {s.return_sats:,} sats return to {plan.funding_address}\n")
+        w("(the server has no host node, so the orchids to be landed are"
+          " not shown)\n")
 
 
 def do_collect(rpc: IndexerRpc, key: WalletKey, network: str,
@@ -213,13 +221,15 @@ def do_collect(rpc: IndexerRpc, key: WalletKey, network: str,
         json.dump(plan_record(plan), f, indent=1)
         f.write("\n")
     w = out.write
-    w(f"\n  PSBT written to {base}.psbt — sign it in the wallet that"
-      f" holds {funding_address}\n")
-    w(f"  record written to {base}.json — bring both back:\n")
-    w(f"    claimstones-wallet relay {base}.json <signed file or hex>\n")
-    w("  (or broadcast from the signing wallet; the relay step here"
-      " re-checks the transaction first)\n")
-    w("  to raise the fee later, use Increase fee (RBF) or CPFP in your"
+    s = plan.summary
+    short = _abbr(funding_address)
+    w(f"\nPSBT written to {base}.psbt — and {base}.json\n")
+    w(f"The signer pays the miner fee ({fee_rate:g} sat/vB) plus"
+      f" {s.carrier_sats} sats (to this wallet): {s.fee_sats:,} +"
+      f" {s.carrier_sats} = {s.fee_sats + s.carrier_sats:,} sats\n")
+    w(f"Remaining {s.return_sats:,} sats will return to {short}\n")
+    w(f"\nCheck, sign & broadcast in the wallet that holds address {short}\n")
+    w("to raise the fee later, use Increase fee (RBF) or CPFP in your"
       " other wallet; never edit the outputs\n")
     return 0
 
@@ -362,8 +372,8 @@ def print_withdraw_plan(plan: WithdrawPlan, out=sys.stdout) -> None:
       " wallet address\n")
     w("  your orchids stay in this wallet; only bitcoin leaves\n")
     if plan.latent_sats:
-        w(f"  CAUTION: the selected coins still carry {plan.latent_sats:,}"
-          " sats of unclaimed value,\n  which would go to the destination"
+        w(f"  CAUTION: {plan.latent_sats:,} of the selected sats are still"
+          " unclaimed;\n  their orchids would go to the destination"
           " — claim first?\n")
 
 
@@ -535,7 +545,7 @@ def menu(rpc: IndexerRpc, network: str, wallet_path: str) -> int:
         if key is not None:
             items.append("  [a] receive — the wallet address")
             items.append("  [l] balance — the wallet's own coins")
-            items.append("  [k] claim — land the latent value on the"
+            items.append("  [k] claim — land the unclaimed orchids on the"
                          " wallet address")
             items.append("  [s] send orchids    [w] withdraw bitcoin")
             items.append("  [e] external claim and collect — harvest coins"

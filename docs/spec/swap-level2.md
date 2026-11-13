@@ -10,4 +10,4 @@ Notes carried over from the earlier docs:
 - Fee: percent with a minimum, in orchids, via an edict to the server output as in sends; the sat side can also carry the miner fee.
 - A LAND tag in a swap must be refused by both wallets unless explicitly quoted, since it would claim the counterparty's latent value.
 
-Open: order-book API shape, price display (the "est. production cost" wording still applies), partial fills, who pays the miner fee.
+Open: order-book API shape, price display (`wallet-policy.md` §Wording applies: amounts, never "value"), partial fills, who pays the miner fee.

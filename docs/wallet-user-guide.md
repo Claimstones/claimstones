@@ -121,15 +121,14 @@ it finds what any ordinary wallet would have used.
 Each coin shows three figures:
 
 - **sats** — the coin's bitcoin, untouched by anything here;
-- **unclaimed** — the sats whose latent value has not been landed yet;
-- **est. production cost** — what the unclaimed value would mint if
-  claimed now, in orchids.
+- **unclaimed** — the sats that have not been landed yet;
+- **est. orchids to be landed** — the orchids a claim would mint now.
 
-The orchid figure is an estimate of production cost — the mining
-electricity behind the coins — and never a price; nothing here has a
-market. Unclaimed value does not expire, but shrinks about 3 % a
-month as the chain's work grows: claiming sooner mints more, and
-there is no deadline.
+The orchid figure is an estimate, fixed only when the claim is mined;
+it is set by the chain's work (`constants.md`) and is never a price —
+nothing here has a market. Unclaimed orchids do not expire, but shrink
+about 3 % a month as the chain's work grows: claiming sooner mints
+more, and there is no deadline.
 
 If the server runs without a host node it cannot value at the tip; the
 coins and their unclaimed sats still show exactly, and the report says
@@ -150,7 +149,7 @@ the fee rate; the wallet shows the whole plan before anything is
 signed:
 
 - which coins go in, their sats and unclaimed sats;
-- the est. production cost that would be minted;
+- the est. orchids to be landed;
 - the network fee, and the sats that return to your own address.
 
 **Claiming does not spend your bitcoin; you pay a network fee.** The
