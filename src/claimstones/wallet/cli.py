@@ -466,12 +466,15 @@ def _restore_wallet(path: str, network: str) -> WalletKey | None:
 
 
 def _prompt_lines() -> list[str]:
-    print("Paste addresses, xpubs or descriptors, one per line;"
-          " an empty line finishes.")
+    """Addresses, xpubs or descriptors, one per line. The prompt after
+    each line says how to finish: a pasted xpub left people waiting on
+    a check that had not started (signet, 2026-11-13)."""
+    print("Paste an address, xpub or descriptor:")
     lines = []
     while True:
         try:
-            line = input("  ").strip()
+            line = input("  " if not lines
+                         else "  (another, or press Enter to run) ").strip()
         except EOFError:
             break
         if not line:
