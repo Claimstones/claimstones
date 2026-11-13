@@ -2,21 +2,20 @@
 
 The release-1 feature set of wallet-policy.md §What a wallet can do,
 grown one command at a time and now complete: Check (watch-only — any
-address, xpub or descriptor), Receive, Claim, Send, Withdraw, the
-external claim and collect (build the PSBT for coins another wallet
-holds, then verify and relay what it signed), and backup by wallet
+address, xpub or descriptor), Receive, Balance, Claim, Send, Withdraw,
+the external claim and collect (build the PSBT for coins another
+wallet holds; that wallet signs and broadcasts), and backup by wallet
 code. The wallet file can be locked under a password; the wallet code
 alone restores either way.
 
 It speaks the indexer RPC (spec/indexer-rpc.md) and trusts it only for
-what it shows; everything the wallet ever signs or relays is built and
-verified locally (wallet/land.py, wallet-policy.md §Envelope scan).
+what it shows; everything the wallet ever signs is built and verified
+locally (wallet/land.py, wallet-policy.md §Envelope scan).
 
     claimstones-wallet                                  # the menu
     claimstones-wallet check bc1q... zpub6r...          # one check, exit
     claimstones-wallet claim 2                          # claim at 2 sat/vB
     claimstones-wallet collect bc1q... 2                # build the PSBT
-    claimstones-wallet relay collect-....json signed.hex
     claimstones-wallet send bc1p... 12.34 2
     claimstones-wallet withdraw bc1q... 50000 2
     claimstones-wallet address | balance | backup
@@ -27,7 +26,6 @@ from __future__ import annotations
 
 import argparse
 import datetime
-import json
 import os
 import sys
 
@@ -36,9 +34,7 @@ import getpass
 from claimstones.bitcoin.descriptors import CheckInputError
 from claimstones.wallet.check import CheckReport, orchids, parse_orchids, run_check
 from claimstones.wallet.claim import ClaimPlan, plan_claim, sign_claim
-from claimstones.wallet.collect import (
-    CollectPlan, load_record, plan_collect, plan_record, verify_returned,
-)
+from claimstones.wallet.collect import CollectPlan, plan_collect
 from claimstones.wallet.keys import (
     WalletKey, WalletKeyError, WalletLocked, load_wallet, save_wallet,
 )
@@ -196,9 +192,9 @@ def print_collect_plan(plan: CollectPlan, out=sys.stdout) -> None:
 def do_collect(rpc: IndexerRpc, key: WalletKey, network: str,
                funding_address: str, fee_rate: float,
                out_dir: str = ".", out=sys.stdout) -> int:
-    """out_dir is where the PSBT and record land; the callers pass the
-    wallet file's folder, so the files are found where the wallet is,
-    not in whatever directory the terminal happened to be in."""
+    """out_dir is where the PSBT lands; the callers pass the wallet
+    file's folder, so the file is found where the wallet is, not in
+    whatever directory the terminal happened to be in."""
     try:
         plan = plan_collect(key.script, funding_address, rpc, fee_rate,
                             network)
@@ -217,13 +213,10 @@ def do_collect(rpc: IndexerRpc, key: WalletKey, network: str,
     base = os.path.abspath(os.path.join(out_dir, f"collect-{stamp}"))
     with open(base + ".psbt", "w", encoding="ascii", newline="\n") as f:
         f.write(plan.psbt.to_base64() + "\n")
-    with open(base + ".json", "w", encoding="ascii", newline="\n") as f:
-        json.dump(plan_record(plan), f, indent=1)
-        f.write("\n")
     w = out.write
     s = plan.summary
     short = _abbr(funding_address)
-    w(f"\nPSBT written to {base}.psbt — and {base}.json\n")
+    w(f"\nPSBT written to {base}.psbt\n")
     w(f"The signer pays the miner fee ({fee_rate:g} sat/vB) plus"
       f" {s.carrier_sats} sats (to this wallet): {s.fee_sats:,} +"
       f" {s.carrier_sats} = {s.fee_sats + s.carrier_sats:,} sats\n")
@@ -234,44 +227,6 @@ def do_collect(rpc: IndexerRpc, key: WalletKey, network: str,
     w("do not use Increase fee (RBF): a wallet that did not build this"
       " transaction rebuilds it and drops the envelope — the claim"
       " silently does not happen\n")
-    return 0
-
-
-def do_relay(rpc: IndexerRpc, record_path: str, signed: str,
-             out=sys.stdout) -> int:
-    try:
-        with open(record_path, encoding="ascii") as f:
-            record = load_record(f.read())
-    except OSError as e:
-        print(f"cannot read the record: {e}", file=sys.stderr)
-        return 1
-    except TemplateError as e:
-        print(f"cannot read the record: {e}", file=sys.stderr)
-        return 1
-    if os.path.exists(signed):
-        try:
-            with open(signed, encoding="ascii") as f:
-                signed = f.read()
-        except OSError as e:
-            print(f"cannot read the signed transaction: {e}", file=sys.stderr)
-            return 1
-    try:
-        tx = verify_returned(signed, record)
-    except TemplateError as e:
-        print(f"refusing to relay: {e}", file=sys.stderr)
-        return 1
-    try:
-        txid = rpc.sendrawtransaction(tx.serialize().hex())
-    except WalletRpcError as e:
-        print(f"the server refused the transaction: {e.message}",
-              file=sys.stderr)
-        return 1
-    except RpcUnreachable as e:
-        print(f"no server: {e}", file=sys.stderr)
-        return 1
-    out.write(f"collect sent: {txid}\n")
-    out.write("the orchids arrive on this wallet's address once it"
-              " confirms\n")
     return 0
 
 
@@ -520,7 +475,7 @@ def _prompt_lines() -> list[str]:
 
 
 def _beside(wallet_path: str) -> str:
-    """The wallet file's folder: where collect writes its PSBT and record."""
+    """The wallet file's folder: where collect writes its PSBT."""
     return os.path.dirname(os.path.abspath(wallet_path))
 
 
@@ -558,7 +513,6 @@ def menu(rpc: IndexerRpc, network: str, wallet_path: str) -> int:
                 items.append("  [s] send orchids    [w] withdraw bitcoin")
                 items.append("  [e] external claim and collect — harvest"
                              " coins another wallet holds")
-                items.append("  [b] broadcast a signed collect")
                 items.append("  [o] backup — show the wallet code")
             else:
                 items.append("  [n] new wallet    [r] restore from wallet"
@@ -653,16 +607,6 @@ def menu(rpc: IndexerRpc, network: str, wallet_path: str) -> int:
             do_collect(rpc, key, network, addr, fee_rate,
                        _beside(wallet_path))
             continue
-        if choice in ("b", "relay", "broadcast") and key is not None:
-            try:
-                record = input("record file (collect-....json)> ").strip()
-                signed = input("signed transaction (file, hex or"
-                               " PSBT base64)> ").strip()
-            except EOFError:
-                continue
-            if record and signed:
-                do_relay(rpc, record, signed)
-            continue
         if choice in ("n", "new") and key is None:
             key = _create_wallet(wallet_path, network)
             show_menu = key is not None
@@ -688,13 +632,12 @@ def main(argv=None) -> int:
     ap.add_argument("-wallet", default=DEFAULT_WALLET,
                     help="the wallet file (default %(default)s)")
     ap.add_argument("command", nargs="?",
-                    choices=["check", "claim", "collect", "relay", "send",
+                    choices=["check", "claim", "collect", "send",
                              "withdraw", "address", "balance", "backup"])
     ap.add_argument("lines", nargs="*", metavar="line",
                     help="check: addresses, xpubs or descriptors;"
                          " claim: fee rate (sat/vB);"
                          " collect: funding address + fee rate;"
-                         " relay: record file + signed transaction;"
                          " send: address + orchids + fee rate;"
                          " withdraw: address + sats + fee rate")
     args = ap.parse_args(argv)
@@ -709,12 +652,6 @@ def main(argv=None) -> int:
         return do_check(rpc, args.network, lines)
     if args.command is None:
         return menu(rpc, args.network, args.wallet)
-    if args.command == "relay":
-        if len(args.lines) != 2:
-            print("usage: claimstones-wallet relay <record.json>"
-                  " <signed file or hex>", file=sys.stderr)
-            return 2
-        return do_relay(rpc, args.lines[0], args.lines[1])
 
     # Everything else needs the wallet.
     usage = {"claim": "claim <fee rate in sat/vB>",

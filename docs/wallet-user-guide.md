@@ -173,26 +173,17 @@ claimstones-wallet collect <funding address> <fee rate>
 ```
 
 (or `[e]` in the menu). The wallet builds one transaction from every
-coin on that address and writes two files: a `.psbt` to sign in the
-wallet that holds the coins, and a `.json` record it will check the
-result against. **The signer pays the miner fee plus 330 sats, nothing
-more** — all the rest of the bitcoin returns to the address it came
-from, and the orchids arrive on this wallet's address. The review in
-the signing wallet shows exactly that: an OP_RETURN, 330 sats to your
-orchid address, the remainder back to yourself.
+coin on that address and writes a `.psbt` beside the wallet file, to
+sign in the wallet that holds the coins. **The signer pays the miner
+fee plus 330 sats, nothing more** — all the rest of the bitcoin
+returns to the address it came from, and the orchids arrive on this
+wallet's address. The review in the signing wallet shows exactly
+that: an OP_RETURN, 330 sats to your orchid address, the remainder
+back to yourself.
 
-Sign the PSBT there, then bring back what it produced — the final
-transaction hex, or the finalized PSBT:
-
-```
-claimstones-wallet relay collect-<stamp>.json <signed file, hex or base64>
-```
-
-(or `[b]` in the menu). The wallet re-checks the signed transaction
-against the record — exactly the outputs you confirmed, nothing
-added, nothing redirected — and only then hands it to the server to
-broadcast. You can equally broadcast from the signing wallet; the
-relay step is the careful route.
+Sign and broadcast there; nothing comes back here. Once the
+transaction confirms, Balance shows the 330-sat coin that carried the
+orchids home, and Check shows the returned coin with 0 unclaimed.
 
 There is no deadline on signing: the landed amount is fixed by the
 block the transaction confirms in, and the PSBT only fails if one of

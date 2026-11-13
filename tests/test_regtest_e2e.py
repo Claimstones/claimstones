@@ -38,7 +38,7 @@ from claimstones.indexer.store_lmdb import LmdbBirthStore
 from claimstones.lineage.walker import Rpc, resolve_rpc_auth
 from claimstones.wallet.check import run_check
 from claimstones.wallet.cli import (
-    do_balance, do_claim, do_collect, do_relay, do_send, do_withdraw,
+    do_balance, do_claim, do_collect, do_send, do_withdraw,
 )
 from claimstones.wallet.keys import WalletKey
 from claimstones.wallet.rpc import IndexerRpc
@@ -179,7 +179,8 @@ class RegtestEndToEnd(unittest.TestCase):
             self.assertEqual(len(coins), 1)
             self.assertEqual(coins[0]["latent_sats"], 0)
 
-        with self.subTest("external claim-and-collect, signed by Core"):
+        with self.subTest("external claim-and-collect, signed and"
+                          " broadcast by Core"):
             funding = self.node("getnewaddress", "", "bech32", wallet=True)
             self.node("sendtoaddress", funding, "0.5", wallet=True)
             self._mine()
@@ -189,20 +190,17 @@ class RegtestEndToEnd(unittest.TestCase):
             rc = do_collect(self.wrpc, self.key, "regtest", funding, 2.0,
                             out_dir=folder, out=out)
             self.assertEqual(rc, 0, out.getvalue())
-            record, psbt_file = sorted(os.listdir(folder))
+            (psbt_file,) = os.listdir(folder)
             with open(os.path.join(folder, psbt_file), encoding="ascii") as f:
                 unsigned = f.read().strip()
 
+            # The signing wallet broadcasts (decided 2026-11-13); Core
+            # plays it here, as Sparrow did on signet.
             signed = self.node("walletprocesspsbt", unsigned, wallet=True)
             self.assertTrue(signed["complete"])
-            signed_path = os.path.join(folder, "signed.psbt")
-            with open(signed_path, "w", encoding="ascii") as f:
-                f.write(signed["psbt"])
-            out = io.StringIO()
-            rc = do_relay(self.wrpc, os.path.join(folder, record),
-                          signed_path, out=out)
-            self.assertEqual(rc, 0, out.getvalue())
-            self.assertIn("collect sent: ", out.getvalue())
+            final = self.node("finalizepsbt", signed["psbt"])
+            self.assertTrue(final["complete"])
+            self.node("sendrawtransaction", final["hex"])
             self._mine()
 
             coins = self._coins()

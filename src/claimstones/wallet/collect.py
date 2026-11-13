@@ -4,34 +4,30 @@ The wallet-policy.md flow for coins the wallet holds no keys for: name
 the one address holding the bitcoin, the wallet builds the
 claim-and-collect template (wallet/land.py) with the orchids coming to
 its own address, and hands back a PSBT for whatever wallet owns the
-coins to sign. The signer pays the miner fee plus the 330-sat carrier,
-nothing more; the rest returns to the address it came from.
+coins to sign and broadcast. The signer pays the miner fee plus the
+330-sat carrier, nothing more; the rest returns to the address it came
+from. There is no deadline: the landed amount is fixed at the
+inclusion block, so the PSBT fails only if an input is spent first.
 
-The plan is written down as a record — everything verification needs,
-independent of this process surviving: the signing happens in another
-wallet, on another machine, with no deadline (the landed amount is
-fixed at the inclusion block, so the PSBT fails only if an input is
-spent first). When the signed transaction comes back, verify_returned
-runs the same verify_collect against the record before anything goes
-near sendrawtransaction — the second moment of §Envelope scan.
+The wallet never sees the signed transaction again (decided
+2026-11-13: a wallet that signs a PSBT broadcasts it; a bring-it-back
+step was a second file nobody would carry). What protects the user is
+the plan shown before signing and the fee guidance with it.
 
 Pure logic, the RPC client injected; file handling is the CLI's.
 """
 
 from __future__ import annotations
 
-import json
 from dataclasses import dataclass
 
 from claimstones.bitcoin.descriptors import CheckInputError, parse_line
-from claimstones.bitcoin.psbt import Psbt, PsbtError, Transaction
+from claimstones.bitcoin.psbt import Psbt
 from claimstones.bitcoin.txparse import TxOut
 from claimstones.wallet.land import (
-    CollectSummary, FundingInput, TemplateError, build_collect, verify_collect,
+    CollectSummary, FundingInput, TemplateError, build_collect,
 )
 from claimstones.wallet.rpc import NO_NODE, IndexerRpc, WalletRpcError
-
-RECORD_KIND = "claimstones claim-and-collect v1"
 
 
 @dataclass(frozen=True)
@@ -79,67 +75,3 @@ def plan_collect(orchids_script: bytes, funding_address: str,
             raise
     return CollectPlan(psbt, summary, funding_address, orchids_script,
                        sum(u["latent_sats"] for u in utxos), seeds, valued_at)
-
-
-# ---------------------------------------------------------------------------
-# The record: what the signed transaction is verified against later
-# ---------------------------------------------------------------------------
-
-def plan_record(plan: CollectPlan) -> dict:
-    s = plan.summary
-    return {
-        "kind": RECORD_KIND,
-        "funding_address": plan.funding_address,
-        "orchids_script": plan.orchids_script.hex(),
-        "inputs": [{"outpoint": op, "sats": p.value,
-                    "script": p.script_pubkey.hex()}
-                   for op, p in zip(s.inputs, plan.psbt.prevouts())],
-        "summary": {"input_sats": s.input_sats,
-                    "carrier_sats": s.carrier_sats,
-                    "return_sats": s.return_sats,
-                    "fee_sats": s.fee_sats},
-        "psbt": plan.psbt.to_base64(),
-    }
-
-
-def load_record(text: str) -> dict:
-    try:
-        record = json.loads(text)
-    except ValueError:
-        raise TemplateError("the record file is not JSON") from None
-    if not isinstance(record, dict) or record.get("kind") != RECORD_KIND:
-        raise TemplateError("not a claim-and-collect record")
-    return record
-
-
-def verify_returned(raw: str, record: dict) -> Transaction:
-    """The signed transaction the user brings back — raw hex, or the
-    PSBT their wallet finalized — checked against the record. Raises
-    TemplateError; a transaction this returns is exactly the template
-    the user confirmed."""
-    raw = "".join(raw.split())
-    try:
-        if raw and all(c in "0123456789abcdefABCDEF" for c in raw):
-            tx = Transaction.parse(bytes.fromhex(raw))
-        else:
-            tx = Psbt.from_base64(raw).extract()
-    except (PsbtError, ValueError) as e:
-        raise TemplateError(f"cannot read the signed transaction: {e}") from None
-
-    by_outpoint = {i["outpoint"]: TxOut(i["sats"], bytes.fromhex(i["script"]))
-                   for i in record["inputs"]}
-    prevouts = []
-    for txin in tx.inputs:
-        outpoint = f"{txin.prev_txid[::-1].hex()}:{txin.prev_vout}"
-        if outpoint not in by_outpoint:
-            raise TemplateError(
-                f"the transaction spends {outpoint}, which is not in the "
-                "record")
-        prevouts.append(by_outpoint[outpoint])
-    s = record["summary"]
-    summary = CollectSummary(tuple(by_outpoint), s["input_sats"],
-                             s["carrier_sats"], s["return_sats"],
-                             s["fee_sats"])
-    verify_collect(tx, prevouts, bytes.fromhex(record["orchids_script"]),
-                   summary)
-    return tx
