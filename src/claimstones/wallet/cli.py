@@ -188,6 +188,9 @@ def print_collect_plan(plan: CollectPlan, out=sys.stdout) -> None:
 def do_collect(rpc: IndexerRpc, key: WalletKey, network: str,
                funding_address: str, fee_rate: float,
                out_dir: str = ".", out=sys.stdout) -> int:
+    """out_dir is where the PSBT and record land; the callers pass the
+    wallet file's folder, so the files are found where the wallet is,
+    not in whatever directory the terminal happened to be in."""
     try:
         plan = plan_collect(key.script, funding_address, rpc, fee_rate,
                             network)
@@ -203,7 +206,7 @@ def do_collect(rpc: IndexerRpc, key: WalletKey, network: str,
     print_collect_plan(plan, out)
 
     stamp = datetime.datetime.now().strftime("%Y%m%d-%H%M%S")
-    base = os.path.join(out_dir, f"collect-{stamp}")
+    base = os.path.abspath(os.path.join(out_dir, f"collect-{stamp}"))
     with open(base + ".psbt", "w", encoding="ascii", newline="\n") as f:
         f.write(plan.psbt.to_base64() + "\n")
     with open(base + ".json", "w", encoding="ascii", newline="\n") as f:
@@ -503,6 +506,11 @@ def _prompt_lines() -> list[str]:
     return lines
 
 
+def _beside(wallet_path: str) -> str:
+    """The wallet file's folder: where collect writes its PSBT and record."""
+    return os.path.dirname(os.path.abspath(wallet_path))
+
+
 def menu(rpc: IndexerRpc, network: str, wallet_path: str) -> int:
     try:
         info = rpc.getindexinfo()
@@ -617,7 +625,8 @@ def menu(rpc: IndexerRpc, network: str, wallet_path: str) -> int:
             except ValueError:
                 print(f"not a number: {raw}")
                 continue
-            do_collect(rpc, key, network, addr, fee_rate)
+            do_collect(rpc, key, network, addr, fee_rate,
+                       _beside(wallet_path))
             continue
         if choice in ("b", "relay", "broadcast") and key is not None:
             try:
@@ -717,7 +726,8 @@ def main(argv=None) -> int:
     if args.command == "claim":
         return do_claim(rpc, key, fee_rate)
     if args.command == "collect":
-        return do_collect(rpc, key, args.network, args.lines[0], fee_rate)
+        return do_collect(rpc, key, args.network, args.lines[0], fee_rate,
+                          _beside(args.wallet))
     if args.command == "send":
         return do_send(rpc, key, args.network, args.lines[0], args.lines[1],
                        fee_rate)
