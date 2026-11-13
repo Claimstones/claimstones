@@ -229,8 +229,11 @@ def do_collect(rpc: IndexerRpc, key: WalletKey, network: str,
       f" {s.carrier_sats} = {s.fee_sats + s.carrier_sats:,} sats\n")
     w(f"Remaining {s.return_sats:,} sats will return to {short}\n")
     w(f"\nCheck, sign & broadcast in the wallet that holds address {short}\n")
-    w("to raise the fee later, use Increase fee (RBF) or CPFP in your"
-      " other wallet; never edit the outputs\n")
+    w("to raise the fee later, use CPFP in your other wallet: spend the"
+      " returned coin at a higher rate\n")
+    w("do not use Increase fee (RBF): a wallet that did not build this"
+      " transaction rebuilds it and drops the envelope — the claim"
+      " silently does not happen\n")
     return 0
 
 

@@ -196,9 +196,13 @@ relay step is the careful route.
 
 There is no deadline on signing: the landed amount is fixed by the
 block the transaction confirms in, and the PSBT only fails if one of
-the coins is spent first. To raise the fee later, use Increase fee
-(RBF) or CPFP in your other wallet; never edit the outputs — a wallet
-that reorders them hands the orchids to whatever output comes first.
+the coins is spent first. To raise the fee later, use CPFP in your
+other wallet: spend the returned coin at a higher rate, and the
+transaction confirms unchanged. Do not use "Increase fee" (RBF): a
+wallet that did not build the transaction rebuilds it from the
+payments it recognises, drops the envelope, and the claim silently
+does not happen — you pay the fee and keep the unclaimed coins, and
+nothing tells you. (Seen on signet with Sparrow, 2026-11-13.)
 
 Legacy addresses (`1...`) are refused for now: their signers need each
 coin's full previous transaction, which this server does not serve.

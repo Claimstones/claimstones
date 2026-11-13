@@ -189,8 +189,8 @@ class CliCollectTests(unittest.TestCase):
         text = out.getvalue()
         self.assertIn("The signer pays the miner fee (2 sat/vB) plus 330 sats",
                       text)
-        self.assertIn("Increase fee (RBF) or CPFP", text)
-        self.assertIn("never edit the outputs", text)
+        self.assertIn("use CPFP in your other wallet", text)
+        self.assertIn("do not use Increase fee (RBF)", text)
         self.assertIn("est. orchids to be landed: 50.00", text)   # 5000 seeds
         self.assertNotIn("worth", text)
         self.assertNotIn("production cost", text)

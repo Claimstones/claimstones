@@ -58,8 +58,10 @@ the funding address with everything else. Per input `witness_utxo`
 (plus `non_witness_utxo` when not taproot). The `summary` is what
 `verifyCollect` checks the PSBT against, and what the frontend must
 show before signing, in the mandated wording: the signer pays the miner
-fee plus 330 sats, nothing more. RBF and CPFP guidance is inherited
-from `wallet-policy.md`: raise fees via output 2, never edit outputs.
+fee plus 330 sats, nothing more. Fee guidance is inherited from
+`wallet-policy.md`: raise fees by CPFP on output 2 only; "Increase
+fee" (RBF) in the signing wallet rebuilds the transaction and drops
+the envelope.
 
 ## Refusals
 
