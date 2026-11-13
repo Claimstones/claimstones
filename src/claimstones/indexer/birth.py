@@ -55,8 +55,9 @@ if __package__ in (None, ""):
 from claimstones.bitcoin.txparse import Block, Tx, parse_block
 from claimstones.lineage.walker import (Rpc, RpcCookieWait, RpcError,
                                        RpcMethodMissing, resolve_rpc_auth,
-                                       resolve_rpc_cookie_path, subsidy_sats)
-from claimstones.protocol.codec import (ACTIVATION_HEIGHT, MAGIC,
+                                       resolve_rpc_cookie_path, subsidy_sats,
+                                       work_from_nbits)
+from claimstones.protocol.codec import (ACTIVATION_HEIGHT, MAGIC, Cenotaph,
                                         activation_height, decipher)
 
 PLAIN = 0xFFFFFFFF  # run height meaning "landed already; no latent value"
@@ -69,6 +70,9 @@ STAT_KEYS = ("utxos", "runs", "bytes", "script_bytes", "txs", "lands",
              "minted", "burned")
 
 Run = tuple[int, int]   # (birth height or PLAIN, sat count)
+
+# After PLAIN and Run on purpose: ledger.py imports them from here.
+from claimstones.indexer.ledger import apply as ledger_apply  # noqa: E402
 
 
 # ---------------------------------------------------------------------------
@@ -477,19 +481,69 @@ def _has_envelope(tx: Tx) -> bool:
 
 
 class BirthIndexer:
-    def __init__(self, store: BirthStore, undo_depth: int = 1000,
-                 chain: str = "main"):
+    """The fused indexer (docs/spec/indexer.md §Determinism): per block,
+    W(h) from the header; per transaction, the birth half (runs cut
+    across the outputs, PLAIN after a land) and the ledger half
+    (balances: ledger.py's land amount and allocation) in one pass over
+    the same input stream.
+
+    LMDB only (decided 2026-11-13): the store must be
+    store_lmdb.LmdbBirthStore. The SQLite BirthStore above is the
+    retired prototype's and holds no ledger."""
+
+    def __init__(self, store, undo_depth: int = 1000, chain: str = "main"):
+        if not hasattr(store, "take_row"):
+            raise TypeError("the fused indexer needs the LMDB store "
+                            "(store_lmdb.LmdbBirthStore); the SQLite "
+                            "BirthStore is the retired prototype's")
         self.store = store
         # Consensus, and deliberately not an option: protocol/codec.py
         # holds the per-chain rule, and `chain` comes from the node's
         # getblockchaininfo, never from a flag.
         self.activation_height = activation_height(chain)
         self.undo_depth = undo_depth
+        self._work: dict[int, int] = {}      # height -> W(height), a cache
+        self._chainwork = 0                  # W(c) of the block in hand
+        self._ledger_marked = store.get_meta("ledger_height") is not None
+
+    # --- work (docs/spec/indexer.md §Work) ---
+
+    def work_at(self, height: int) -> int:
+        """W(height) from the work table; W(-1) = 0."""
+        if height < 0:
+            return 0
+        w = self._work.get(height)
+        if w is None:
+            w = self.store.get_work(height)
+            if w is None:
+                raise RuntimeError(
+                    f"no W({height}) in the work table: an index that starts "
+                    f"above genesis needs indexer/work.py fill_work first")
+            if len(self._work) > 4096:
+                self._work.clear()
+            self._work[height] = w
+        return w
+
+    def _w_of(self, height: int) -> int:
+        """w(height) = W(height) - W(height - 1), expected hashes."""
+        return self.work_at(height) - self.work_at(height - 1)
+
+    # --- blocks ---
 
     def connect_block(self, block: Block) -> None:
         store = self.store
         height = block.height
         store.begin()
+        chainwork = self.work_at(height - 1) + work_from_nbits(block.bits)
+        store.put_work(height, chainwork)
+        self._work[height] = chainwork
+        self._chainwork = chainwork
+        if not self._ledger_marked:
+            # the height from which balances exist (§Derived)
+            store.set_meta("ledger_height", str(height))
+            self._ledger_marked = True
+        s = store.stats
+        before = (s["lands"], s["minted"], s["burned"])
         fee_tails: list[list[Run]] = []
         for tx in block.txs[1:]:
             fee_tails.append(self._connect_tx(tx, height))
@@ -497,7 +551,9 @@ class BirthIndexer:
         stream: list[Run] = [(height, subsidy_sats(height))] if subsidy_sats(height) else []
         for tail in fee_tails:
             extend_merged(stream, tail)
-        self._place(coinbase, stream, height)
+        self._place(coinbase, stream, height, 0)
+        store.log_counters(height, s["lands"] - before[0],
+                           s["minted"] - before[1], s["burned"] - before[2])
         store.stats["txs"] += len(block.txs)
         store.set_meta("height", str(height))
         if height % self.store.commit_every == 0:
@@ -510,37 +566,57 @@ class BirthIndexer:
         self.store.undo_block(height)
         self.store.set_meta("height", str(height - 1))
         self.store.commit()
+        self._work.clear()          # the undone block's W row is gone
 
     def _connect_tx(self, tx: Tx, height: int) -> list[Run]:
+        """Step 1: take the inputs -- the input run stream and the pot."""
         stream: list[Run] = []
+        pot = 0
         for inp in tx.inputs:
-            runs = self.store.take(inp.prev_txid, inp.prev_vout, height)
-            if runs is None:
+            row = self.store.take_row(inp.prev_txid, inp.prev_vout, height)
+            if row is None:
                 raise MissingInput(f"{tx.txid_hex} spends unknown {inp.prev_txid[::-1].hex()}:{inp.prev_vout}")
+            runs, seeds = row
             extend_merged(stream, runs)
-        return self._place(tx, stream, height)
+            pot += seeds
+        return self._place(tx, stream, height, pot)
 
-    def _place(self, tx: Tx, stream: list[Run], height: int) -> list[Run]:
+    def _place(self, tx: Tx, stream: list[Run], height: int,
+               pot: int) -> list[Run]:
+        """Steps 2-6 on one transaction's input stream and pot."""
         pieces, leftover = cut_runs(stream, [o.value for o in tx.outputs])
-        land = False
         # A None activation height means the constant is still undecided, so
         # nothing lands and the stream carries only real birth heights. Note
         # what the collapse below does: it replaces this output's runs in the
         # stored row, and that row is the stream a later spend reads, so PLAIN
         # propagates forward. Landedness flows with the sats exactly as a
         # birth height does -- see docs/birth-index-check.md.
+        artifact = None
         if (self.activation_height is not None
                 and height >= self.activation_height and _has_envelope(tx)):
             artifact = decipher(tx)
-            land = artifact is not None and artifact.land
+        land = False
+        seeds = None
+        if artifact is not None or pot:
+            # the ledger half; skipped for the common transaction that
+            # carries neither an envelope nor a balance
+            step = ledger_apply(tx, artifact, stream, pot, self._chainwork,
+                                self._w_of)
+            land = step.land
+            seeds = step.seeds
+            if land:
+                self.store.stats["lands"] += 1
+                self.store.stats["minted"] += step.landed
+                self.store.add_land(tx.txid, height, step.landed,
+                                    isinstance(artifact, Cenotaph))
+            self.store.stats["burned"] += step.burned
         for vout, runs in enumerate(pieces):
             # a zero-value output is still an outpoint a later tx may
             # spend; it is stored with an empty run list
             if land and runs:
                 runs = [(PLAIN, runs_total(runs))]
-            self.store.put(tx.txid, vout, tx.outputs[vout].script_pubkey, runs, height)
-        if land:
-            self.store.stats["lands"] += 1
+            self.store.put(tx.txid, vout, tx.outputs[vout].script_pubkey, runs,
+                           height, seeds=seeds[vout] if seeds else 0)
         return leftover
 
 

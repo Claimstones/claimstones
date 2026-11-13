@@ -29,6 +29,8 @@ the row kind above):
            with its row)
     undo   height + txid + b"L" (37) -> b"" for a land recorded in that
            block (undo = delete the land row)
+    undo   height + b"C" (5) -> the block's lands/minted/burned deltas
+           (undo = subtract them, so the counters survive a reorg exact)
 
 `work` rows are deleted on undo and rewritten on reconnect.
 
@@ -73,7 +75,8 @@ from claimstones.indexer.birth import (BIP30_HEIGHTS, STAT_KEYS, Run,
 
 SLEN = struct.Struct("<I")       # script_len header of a utxo value
 
-UNDO_ROW, UNDO_BAL, UNDO_LAND = 40, 41, 37     # undo key lengths, by kind
+UNDO_ROW, UNDO_BAL, UNDO_LAND, UNDO_COUNTERS = 40, 41, 37, 5   # undo key lengths
+COUNTERS = struct.Struct(">I16s16s")           # lands, minted, burned deltas
 
 
 def _ukey(txid: bytes, vout: int) -> bytes:
@@ -483,6 +486,18 @@ class LmdbBirthStore:
         if height >= self.undo_from:
             self.txn.put(_undo_land_key(height, txid), b"", db=self.d_undo)
 
+    def log_counters(self, height: int, lands: int, minted: int,
+                     burned: int) -> None:
+        """What a block added to the ledger counters, so undo_block can
+        subtract it; the caller has already added it to `stats`."""
+        if height < self.undo_from or not (lands or minted or burned):
+            return
+        self.begin()
+        self.txn.put(height.to_bytes(4, "big") + b"C",
+                     COUNTERS.pack(lands, minted.to_bytes(16, "big"),
+                                   burned.to_bytes(16, "big")),
+                     db=self.d_undo)
+
     def get_land(self, txid: bytes) -> Optional[tuple[int, int, bool]]:
         """(height, amount, cenotaph) of a recorded land, or None."""
         if self.d_land is None:
@@ -513,6 +528,11 @@ class LmdbBirthStore:
         for key, value in rows:
             if len(key) == UNDO_LAND:
                 self.txn.delete(key[4:36], db=self.d_land)
+            elif len(key) == UNDO_COUNTERS:
+                lands, minted, burned = COUNTERS.unpack(value)
+                self.stats["lands"] -= lands
+                self.stats["minted"] -= int.from_bytes(minted, "big")
+                self.stats["burned"] -= int.from_bytes(burned, "big")
             elif len(key) == UNDO_BAL:
                 self.txn.put(key[4:40], value, db=self.d_bal)
             else:

@@ -1,4 +1,7 @@
-"""Tests for the birth index prototype (indexer/birth.py)."""
+"""Tests for the birth index (indexer/birth.py): run arithmetic, the
+indexer on the LMDB store (the only store it runs on since 2026-11-13),
+and the RPC waiting policy. The SQLite BirthStore's own tests
+(migration, schema) stay; it is the retired prototype's store."""
 
 from __future__ import annotations
 
@@ -11,6 +14,7 @@ import unittest
 import claimstones.indexer.birth as birth
 
 from claimstones.bitcoin.txparse import Block, Tx, TxIn, TxOut
+from claimstones.indexer.store_lmdb import LmdbBirthStore
 from claimstones.indexer.birth import (
     PLAIN,
     RUN_SIZE,
@@ -108,8 +112,24 @@ class RunTests(unittest.TestCase):
 
 class IndexerCase(unittest.TestCase):
     def setUp(self):
-        self.store = BirthStore(":memory:", commit_every=1)
+        self._tmp = tempfile.TemporaryDirectory()
+        self._extra = []
+        self.store = self._open("db", commit_every=1)
         self.ix = BirthIndexer(self.store)
+
+    def tearDown(self):
+        for s in self._extra:
+            s.env.close()
+        try:
+            self._tmp.cleanup()
+        except OSError:
+            pass
+
+    def _open(self, name: str, **kw) -> LmdbBirthStore:
+        s = LmdbBirthStore(os.path.join(self._tmp.name, name),
+                           map_mb=64, **kw)
+        self._extra.append(s)
+        return s
 
     def block(self, height: int, txs: list[Tx]) -> None:
         self.ix.connect_block(Block(height, tid(200 + height), 0, txs))
@@ -199,19 +219,11 @@ class IndexerTests(IndexerCase):
         self.assertEqual([(t, v) for t, v, _ in self.store.by_script(P2WPKH)], [(tid(1), 0)])
         self.assertEqual(self.store.stats["script_bytes"], 22)
 
-    def test_undo_rows_skipped_below_undo_from(self):
-        store = BirthStore(":memory:", commit_every=1, undo_from=2)
-        ix = BirthIndexer(store)
-        for h, cb in ((0, coinbase(1, 0)), (1, coinbase(2, 1))):
-            ix.connect_block(Block(h, tid(200 + h), 0, [cb]))
-        self.assertEqual(store.db.execute("SELECT count(*) FROM undo").fetchone()[0], 0)
-        spend = tx(3, inputs=[(tid(1), 0)], outputs=[(S, None)])
-        ix.connect_block(Block(2, tid(202), 0, [coinbase(4, 2), spend]))
-        self.assertEqual(store.db.execute("SELECT count(*) FROM undo").fetchone()[0], 3)
-        ix.disconnect_block(2)
-        self.assertEqual(store.get(tid(1), 0), [(0, S)])
-
     def test_bip30_duplicate_coinbase_overwrites_only_at_known_heights(self):
+        # starting above genesis and skipping heights: give the indexer
+        # the parents' W, as fill_work would
+        for h in (91841, 91879, 91880):
+            self.store.put_work(h, 2 * (h + 1))
         self.block(91842, [coinbase(1, 91842)])
         self.block(91880, [coinbase(1, 91880)])            # same txid again
         self.assertEqual(self.runs(1, 0), [(91880, S)])
@@ -219,42 +231,10 @@ class IndexerTests(IndexerCase):
         with self.assertRaises(Exception):                 # elsewhere a duplicate is an error
             self.block(91881, [coinbase(1, 91881)])
 
-    def test_hot_outputs_spent_inside_window_never_reach_sqlite(self):
-        store = BirthStore(":memory:", commit_every=10)
-        ix = BirthIndexer(store)
-        ix.connect_block(Block(0, tid(200), 0, [coinbase(1, 0)]))
-        a = tx(2, inputs=[(tid(1), 0)], outputs=[(S // 2, None), (S // 2, None)])
-        ix.connect_block(Block(1, tid(201), 0, [coinbase(3, 1), a]))
-        b = tx(4, inputs=[(tid(2), 0)], outputs=[(S // 2, None)])
-        ix.connect_block(Block(2, tid(202), 0, [coinbase(5, 2), b]))
-        self.assertEqual(store.db.execute("SELECT count(*) FROM utxo").fetchone()[0], 0)
-        self.assertEqual(store.get(tid(2), 1), [(0, S // 2)])          # hot
-        self.assertEqual(store.get(tid(2), 0), None)                    # spent while hot
-        self.assertEqual([(t, v) for t, v, _ in store.by_script(P2WPKH)],
-                         [(tid(2), 1), (tid(3), 0), (tid(4), 0), (tid(5), 0)])
-        self.assertEqual(store.stats["utxos"], 4)
-        store.commit()
-        self.assertEqual(store.hot, {})
-        self.assertEqual(store.db.execute("SELECT count(*) FROM utxo").fetchone()[0], 4)
-        self.assertEqual(store.get(tid(4), 0), [(0, S // 2)])
-        # rollback drops uncommitted hot rows and reloads the counters
-        ix.connect_block(Block(3, tid(203), 0, [coinbase(6, 3)]))
-        self.assertIn((tid(6), 0), store.hot)
-        store.rollback()
-        self.assertEqual(store.hot, {})
-        self.assertEqual(store.stats["utxos"], 4)
-
-    def test_script_index_built_once_and_lookup_works_either_way(self):
-        self.block(0, [coinbase(1, 0)])
-        self.assertFalse(self.store.has_script_index())
-        self.assertEqual([(t, v) for t, v, _ in self.store.by_script(P2WPKH)], [(tid(1), 0)])
-        self.assertTrue(self.store.ensure_script_index())
-        self.assertTrue(self.store.has_script_index())
-        self.assertFalse(self.store.ensure_script_index())
-        self.block(1, [coinbase(2, 1)])
-        self.assertEqual([(t, v) for t, v, _ in self.store.by_script(P2WPKH)], [(tid(1), 0), (tid(2), 0)])
-        self.store.drop_script_index()
-        self.assertFalse(self.store.has_script_index())
+    def test_sqlite_store_is_refused(self):
+        # LMDB only since 2026-11-13: the prototype's store has no ledger
+        with self.assertRaises(TypeError):
+            BirthIndexer(BirthStore(":memory:"))
 
     def test_schema_mismatch_refuses(self):
         with tempfile.TemporaryDirectory() as d:
@@ -317,16 +297,6 @@ class IndexerTests(IndexerCase):
         self.assertIsNone(self.runs(4, 0))
         state = {k: v for k, v in self.store.stats.items() if k != "txs"}   # txs is a throughput counter
         self.assertEqual(state, {k: v for k, v in before.items() if k != "txs"})
-
-    def test_sat_conservation(self):
-        # every sat in the utxo set is accounted for: sum of runs == sum of unspent values
-        self.block(0, [coinbase(1, 0)])
-        self.block(1, [coinbase(2, 1)])
-        spend = tx(3, inputs=[(tid(1), 0)], outputs=[(S // 3, None), (S // 3, None)])
-        self.block(2, [coinbase(4, 2, claim=S + (S - 2 * (S // 3))), spend])
-        rows = self.store.db.execute("SELECT runs FROM utxo").fetchall()
-        total = sum(sum(n for _, n in decode_runs(r[0])) for r in rows)
-        self.assertEqual(total, 3 * S)   # three blocks' subsidy, nothing lost
 
 
 class WaitBase(unittest.TestCase):

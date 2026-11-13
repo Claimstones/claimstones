@@ -1,9 +1,11 @@
 """Tests for the LMDB birth store (indexer/store_lmdb.py).
 
-Three angles: the whole indexer-level suite from test_birth.py rerun on
-LMDB (same interface, same semantics); a differential drive of both
-stores through one block sequence, comparing complete state; and the
-handover — a db written by fastbuild phase 3, picked up by the store.
+The store-level behaviour the indexer relies on (undo rows, the hot
+window, the address table, sat conservation, duplicate refusal), and the
+handover — a db written by fastbuild phase 3, picked up by the store and
+the daemon. The indexer-level suite itself is test_birth.py, which runs
+on this store. (The differential drive against the SQLite BirthStore
+went with the SQLite indexer, 2026-11-13: LMDB only.)
 """
 
 from __future__ import annotations
@@ -17,13 +19,28 @@ import pytest
 lmdb = pytest.importorskip("lmdb")
 
 from claimstones.bitcoin.txparse import Block
-from claimstones.indexer.birth import BirthIndexer, BirthStore, encode_runs
+from claimstones.indexer.birth import BirthIndexer, encode_runs
 from claimstones.indexer.fastbuild import spill
 from claimstones.indexer.fastbuild.load import load
 from claimstones.indexer.store_lmdb import LmdbBirthStore, _unrow
-from tests.test_birth import P2WPKH, S, IndexerTests, coinbase, tid, tx
+from claimstones.indexer.work import fill_work
+from tests.test_birth import P2WPKH, S, IndexerCase, coinbase, tid, tx
 
 OTHER = bytes([0x00, 0x14]) + b"\x33" * 20
+REGTEST_BITS_HEX = "207fffff"      # w(h) = 2
+
+
+def fake_node_call(upto: int):
+    """getblockhash/getblockheader for fill_work on a regtest-like chain:
+    constant nBits, so chainwork(upto) = 2 (upto + 1)."""
+    def call(method, *a):
+        if method == "getblockhash":
+            return f"hash{a[0]}"
+        if method == "getblockheader":
+            h = int(a[0][4:])
+            return {"bits": REGTEST_BITS_HEX, "chainwork": f"{2 * (h + 1):064x}"}
+        raise AssertionError(method)
+    return call
 
 
 def lmdb_utxo_rows(store: LmdbBirthStore) -> dict:
@@ -38,11 +55,6 @@ def lmdb_utxo_rows(store: LmdbBirthStore) -> dict:
             txn.abort()
 
 
-def sqlite_utxo_rows(store: BirthStore) -> dict:
-    return {(t_, v): (s, r) for t_, v, s, r in store.db.execute(
-        "SELECT txid, vout, script, runs FROM utxo")}
-
-
 def entries(store: LmdbBirthStore, db) -> int:
     txn = store._read()
     try:
@@ -52,29 +64,8 @@ def entries(store: LmdbBirthStore, db) -> int:
             txn.abort()
 
 
-class LmdbIndexerTests(IndexerTests):
-    """Every indexer-level test from test_birth.py, on the LMDB store.
-    The handful that reach into SQLite internals are re-expressed."""
-
-    def setUp(self):
-        self._tmp = tempfile.TemporaryDirectory()
-        self._extra = []
-        self.store = self._open("db", commit_every=1)
-        self.ix = BirthIndexer(self.store)
-
-    def tearDown(self):
-        for s in self._extra:
-            s.env.close()
-        try:
-            self._tmp.cleanup()
-        except OSError:
-            pass
-
-    def _open(self, name: str, **kw) -> LmdbBirthStore:
-        s = LmdbBirthStore(os.path.join(self._tmp.name, name),
-                           map_mb=64, **kw)
-        self._extra.append(s)
-        return s
+class LmdbIndexerTests(IndexerCase):
+    """Store-level behaviour through the indexer, on the LMDB store."""
 
     def test_undo_rows_skipped_below_undo_from(self):
         store = self._open("db2", commit_every=1, undo_from=2)
@@ -84,7 +75,7 @@ class LmdbIndexerTests(IndexerTests):
         self.assertEqual(entries(store, store.d_undo), 0)
         spend = tx(3, inputs=[(tid(1), 0)], outputs=[(S, None)])
         ix.connect_block(Block(2, tid(202), 0, [coinbase(4, 2), spend]))
-        self.assertEqual(entries(store, store.d_undo), 3)
+        self.assertEqual(entries(store, store.d_undo), 3)   # no balances: row entries only
         ix.disconnect_block(2)
         self.assertEqual(store.get(tid(1), 0), [(0, S)])
 
@@ -150,63 +141,6 @@ class LmdbIndexerTests(IndexerTests):
         self.store.rollback()
 
 
-class DifferentialTests(unittest.TestCase):
-    """One block sequence, two stores, identical state at every step."""
-
-    def setUp(self):
-        self._tmp = tempfile.TemporaryDirectory()
-        self.sq = BirthStore(":memory:", commit_every=3)
-        self.lm = LmdbBirthStore(os.path.join(self._tmp.name, "db"),
-                                 commit_every=3, map_mb=64)
-        self.ixs = [BirthIndexer(self.sq), BirthIndexer(self.lm)]
-
-    def tearDown(self):
-        self.sq.db.close()
-        self.lm.env.close()
-        try:
-            self._tmp.cleanup()
-        except OSError:
-            pass
-
-    def both(self, fn):
-        for ix in self.ixs:
-            fn(ix)
-
-    def assert_same_state(self):
-        self.sq.commit()
-        self.lm.commit()
-        self.assertEqual(sqlite_utxo_rows(self.sq), lmdb_utxo_rows(self.lm))
-        self.assertEqual(self.sq.stats, self.lm.stats)
-        self.assertEqual(self.sq.last_height(), self.lm.last_height())
-        for script in (P2WPKH, OTHER):
-            self.assertEqual(self.sq.by_script(script),
-                             self.lm.by_script(script))
-
-    def test_connect_disconnect_parity(self):
-        blocks = [
-            Block(0, tid(200), 0, [coinbase(1, 0)]),
-            Block(1, tid(201), 0, [
-                coinbase(2, 1, claim=S + S // 4),
-                tx(3, inputs=[(tid(1), 0)],
-                   outputs=[(S // 2, None), (S // 4, OTHER), (0, OTHER)])]),
-            Block(2, tid(202), 0, [
-                coinbase(4, 2),
-                tx(5, inputs=[(tid(3), 0)], outputs=[(S // 2, None)]),
-                tx(6, inputs=[(tid(5), 0), (tid(3), 1)],
-                   outputs=[(S // 2 + S // 4, OTHER)])]),
-            Block(3, tid(203), 0, [coinbase(7, 3)]),
-        ]
-        for b in blocks:
-            self.both(lambda ix, b=b: ix.connect_block(b))
-            self.assert_same_state()
-        for h in (3, 2):
-            self.both(lambda ix, h=h: ix.disconnect_block(h))
-            self.assert_same_state()
-        self.both(lambda ix: ix.connect_block(
-            Block(2, tid(212), 0, [coinbase(8, 2)])))
-        self.assert_same_state()
-
-
 def seed_stream(path) -> list:
     """A two-row final stream with arithmetic-friendly runs."""
     rows = [(tid(1), 0, P2WPKH, encode_runs([(0, S)])),
@@ -233,7 +167,18 @@ def test_handover_from_phase3_db(tmp_path):
         assert store.get(tid(1), 0) == [(0, S)]
         assert store.by_script(OTHER) == [(tid(2), 0, [(1, S)])]
 
-        # the daemon takes over: spend a loaded output, then reorg it away
+        # the daemon takes over. A phase-3 db has no work table, and the
+        # indexer refuses to guess W(1): cs_indexer.main fills it first.
+        ix = BirthIndexer(store)
+        spend = tx(3, inputs=[(tid(1), 0)], outputs=[(S, None)])
+        with pytest.raises(RuntimeError, match="fill_work"):
+            ix.connect_block(Block(2, tid(202), 0, [coinbase(4, 2), spend]))
+        store.rollback()
+        assert fill_work(store, fake_node_call(1), 1,
+                         report=lambda *a, **k: None) == 2
+        assert (store.get_work(0), store.get_work(1)) == (2, 4)
+
+        # then: spend a loaded output, then reorg it away
         ix = BirthIndexer(store)
         spend = tx(3, inputs=[(tid(1), 0)], outputs=[(S, None)])
         ix.connect_block(Block(2, tid(202), 0, [coinbase(4, 2), spend]))
