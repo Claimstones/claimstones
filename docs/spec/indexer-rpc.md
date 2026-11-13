@@ -62,16 +62,18 @@ Relay through the host node; the node's answer (txid or refusal) passes through.
 
 The method list with signatures.
 
+### `getorchidbalance <address | script_hex | {"txid":..., "vout":...}>`
+
+Settled orchid balances from the ledger half (`indexer.md`), served since 2026-11-13: per-UTXO seeds for every unspent output of the script that holds a nonzero balance, and their sum, at the index height. The shape the CLI wallet consumes for `balance` and Send. Error `-5` for an unknown outpoint, and `-5` with a message naming the cause on an index the fused daemon has never written — a birth-only index has no balances, and the method says so rather than answering 0 (`indexer.md` §The ledger cannot be computed afterwards).
+
+```json
+{"height": 980123, "seeds": 12294,
+ "utxos": [{"txid": "...", "vout": 1, "seeds": 12294}]}
+```
+
+`getindexinfo` carries the ledger's counters beside the birth half's: `lands`, `minted`, `burned`, and `ledger_height` — the height from which balances exist, `null` until the fused daemon has run on the index.
+
 ## Planned, not yet served
-
-- **`getorchidbalance <address | script_hex | {"txid":..., "vout":...}>`** — settled orchid balances from the ledger half (`indexer.md`), once it joins the daemon. Until then there are no balances to serve, and the method is absent rather than answering 0. Shape decided 2026-11-13, the one the CLI wallet already consumes: per-UTXO seeds for every unspent output of the script that holds a nonzero balance, and their sum.
-
-  ```json
-  {"height": 980123, "seeds": 12294,
-   "utxos": [{"txid": "...", "vout": 1, "seeds": 12294}]}
-  ```
-
-  With it `getindexinfo` gains `minted`, `burned` and `ledger_height` (the height from which balances exist).
 - **Confirmation status** for a relayed transaction (`gettxstatus`): mempool / confirming / settled / dropped, as the node sees it. **[decide]** whether a pure passthrough of the node's `getrawtransaction` verbosity is enough.
 - **[decide]** a `getworktable` (nbits per retarget period) so a node-less client can recompute valuation end to end from headers it verifies itself.
 

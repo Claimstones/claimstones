@@ -49,9 +49,12 @@ def served(tmp_path_factory):
     store = LmdbBirthStore(db, map_mb=64)
     store.begin()
     store.put(TXID_A, 0, SCRIPT_A, RUNS_A, height=170)
-    store.put(TXID_A, 1, SCRIPT_B, RUNS_B, height=170)
-    store.put(TXID_B, 3, SCRIPT_A, [(150, 42)], height=171)
+    store.put(TXID_A, 1, SCRIPT_B, RUNS_B, height=170, seeds=1234)
+    store.put(TXID_B, 3, SCRIPT_A, [(150, 42)], height=171, seeds=5)
     store.set_meta("height", str(TIP))
+    store.set_meta("ledger_height", "150")
+    store.stats["lands"] = 2
+    store.stats["minted"] = 1239
     store.commit()
     store.close()
 
@@ -83,6 +86,52 @@ def test_getindexinfo(served):
     assert info["utxos"] == 3
     assert info["runs"] == 5
     assert info["schema"] == "3"
+    assert (info["lands"], info["minted"], info["burned"]) == (2, 1239, 0)
+    assert info["ledger_height"] == 150
+
+
+def test_getorchidbalance_by_script_and_outpoint(served):
+    addr_a = script_to_address("bcrt", SCRIPT_A)
+    r = rpc(served, "getorchidbalance", addr_a)["result"]
+    assert r["height"] == TIP
+    assert r["seeds"] == 5                          # only TXID_B:3 on A
+    assert r["utxos"] == [{"txid": TXID_B[::-1].hex(), "vout": 3, "seeds": 5}]
+    by_hex = rpc(served, "getorchidbalance", SCRIPT_B.hex())["result"]
+    assert by_hex["seeds"] == 1234
+    assert by_hex["utxos"] == [{"txid": TXID_A[::-1].hex(), "vout": 1,
+                                "seeds": 1234}]
+    one = rpc(served, "getorchidbalance",
+              {"txid": TXID_A[::-1].hex(), "vout": 1})["result"]
+    assert one["seeds"] == 1234 and len(one["utxos"]) == 1
+    none = rpc(served, "getorchidbalance",
+               {"txid": TXID_A[::-1].hex(), "vout": 0})["result"]
+    assert none == {"height": TIP, "seeds": 0, "utxos": []}
+    assert rpc(served, "getorchidbalance",
+               {"txid": "ab" * 32, "vout": 0})["error"]["code"] == -5
+
+
+def test_getorchidbalance_without_a_ledger(tmp_path):
+    """A reader on an index the fused daemon never wrote: the method
+    exists and says why it cannot answer, rather than answering 0."""
+    import lmdb
+    from claimstones.indexer.rpc import RpcFault
+    env = lmdb.open(str(tmp_path / "old"), max_dbs=4, map_size=64 << 20)
+    env.open_db(b"utxo")
+    env.open_db(b"undo")
+    env.open_db(b"addr", dupsort=True)
+    d_meta = env.open_db(b"meta")
+    with env.begin(write=True) as txn:
+        txn.put(b"schema", b"3", db=d_meta)
+    env.close()
+    reader = LmdbBirthStore(str(tmp_path / "old"), map_mb=64, readonly=True)
+    try:
+        q = IndexQueries(reader)
+        assert q.getindexinfo()["ledger_height"] is None
+        with pytest.raises(RpcFault) as e:
+            q.getorchidbalance(SCRIPT_A.hex())
+        assert "no ledger half" in str(e.value)
+    finally:
+        reader.close()
 
 
 def test_getbirthruns_display_order_and_plain(served):

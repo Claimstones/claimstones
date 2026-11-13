@@ -126,10 +126,14 @@ discards anything is the single `div` of step 3, and `land.md`
 
 An index built from genesis has `W(0) = w(0)`. An index that starts
 above genesis — the land-free snapshot resumed with the fused code —
-takes `W(start − 1)` once from the header chain it did not replay (the
-node's `getblockheader` `chainwork`, which is the same sum), and never
-asks again. Agreement with the node's `chainwork` at any later height
-is a check the daemon may log, not an input. `work` is a chain fact,
+fills `work` for every height below its start from the header chain it
+did not replay, once, at daemon start (`indexer/work.py`): one header
+per retarget period, since nBits is constant inside a period on main,
+signet and regtest, and `W(start − 1)` so computed must equal the
+node's `chainwork` there exactly or nothing is written. A land values
+runs born at any height, so every `w(h)` has to exist, not only the
+sum. Agreement with the node's `chainwork` at any later height is a
+check the daemon may log, not an input. `work` is a chain fact,
 recomputable from headers; it is kept so that landing needs no node
 call, reorgs rewrite it by height, and `getlatent` and the planned
 `getworktable` (`indexer-rpc.md`) read it instead of the node.

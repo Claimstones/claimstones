@@ -4,9 +4,11 @@ A throwaway regtest bitcoind, a fresh LMDB birth index built from
 genesis by the real ChainFollower, the real indexer RPC server in a
 thread, and the wallet driven through its own CLI functions:
 
-  receive -> check -> claim -> a reorg across the land -> external
-  claim-and-collect signed by Bitcoin Core itself -> withdraw ->
-  Send's documented refusal (the ledger half is not built yet).
+  receive -> check -> claim (the minted amount equals land_amount
+  recomputed from the node's headers) -> a reorg across the land (the
+  balance is undone and recomputed) -> external claim-and-collect signed
+  by Bitcoin Core itself (the seeds land on the carrier) -> withdraw
+  (orchids stay) -> Send (the recipient's carrier holds the seeds).
 
 Test chains are active from height 1 (codec.activation_height, decided
 2026-11-11), which is what lets the land count here at all.
@@ -33,9 +35,10 @@ BITCOIND = os.environ.get("CLAIMSTONES_BITCOIND") or shutil.which("bitcoind")
 
 from claimstones.indexer.birth import BirthIndexer, RpcBlocks
 from claimstones.indexer.cs_indexer import ChainFollower
+from claimstones.indexer.ledger import land_amount
 from claimstones.indexer.rpc import IndexQueries, make_server
 from claimstones.indexer.store_lmdb import LmdbBirthStore
-from claimstones.lineage.walker import Rpc, resolve_rpc_auth
+from claimstones.lineage.walker import Rpc, resolve_rpc_auth, work_from_nbits
 from claimstones.wallet.check import run_check
 from claimstones.wallet.cli import (
     do_balance, do_claim, do_collect, do_send, do_withdraw,
@@ -128,6 +131,19 @@ class RegtestEndToEnd(unittest.TestCase):
     def _coins(self):
         return self.wrpc.getaddressutxos(self.key.script.hex())
 
+    def _seeds(self, target=None) -> dict:
+        return self.wrpc.getorchidbalance(target or self.key.script.hex())
+
+    def _expected_amount(self, runs, height: int) -> int:
+        """land.md §Valuation sequence from the node's own headers:
+        W(c) = the block's chainwork, w(h) from each birth block's nBits."""
+        def header(h):
+            return self.node("getblockheader", self.node("getblockhash", h))
+        stream = [(h, n) for h, n in runs if h != "plain"]
+        chainwork = int(header(height)["chainwork"], 16)
+        return land_amount(stream, chainwork,
+                           lambda h: work_from_nbits(int(header(h)["bits"], 16)))
+
     def test_the_whole_flow(self):
         with self.subTest("receive and check"):
             self.node("sendtoaddress", self.address, "1.0", wallet=True)
@@ -144,7 +160,7 @@ class RegtestEndToEnd(unittest.TestCase):
             rc = do_balance(self.wrpc, self.key, "regtest", out)
             self.assertEqual(rc, 0, out.getvalue())
             self.assertIn("100,000,000 sats", out.getvalue())
-            self.assertIn("landed orchids: not served yet", out.getvalue())
+            self.assertIn("landed orchids 0.00", out.getvalue())   # served, none yet
 
         with self.subTest("the server knows its chain"):
             info = self.wrpc.getindexinfo()
@@ -152,6 +168,8 @@ class RegtestEndToEnd(unittest.TestCase):
             self.assertEqual(info["activation_height"], 1)
 
         with self.subTest("claim lands the coin"):
+            (before,) = self._coins()               # the runs the land values
+            self.assertEqual(self._seeds()["seeds"], 0)
             out = io.StringIO()
             rc = do_claim(self.wrpc, self.key, 1.0, out, ask=YES)
             self.assertEqual(rc, 0, out.getvalue())
@@ -162,6 +180,25 @@ class RegtestEndToEnd(unittest.TestCase):
             self.assertEqual(coins[0]["latent_sats"], 0)
             self.assertEqual(coins[0]["runs"],
                              [["plain", coins[0]["sats"]]])
+            # vector 4 against a real node: the index's amount is the
+            # valuation sequence over the input runs at the block's W
+            expected = self._expected_amount(before["runs"],
+                                             self.node("getblockcount"))
+            self.assertGreater(expected, 0)
+            bal = self._seeds()
+            self.assertEqual(bal["seeds"], expected)
+            self.assertEqual(bal["utxos"], [{"txid": coins[0]["txid"],
+                                             "vout": coins[0]["vout"],
+                                             "seeds": expected}])
+            info = self.wrpc.getindexinfo()
+            self.assertEqual((info["lands"], info["minted"], info["burned"]),
+                             (1, expected, 0))
+            self.assertEqual(info["ledger_height"], 0)
+            out = io.StringIO()
+            self.assertEqual(do_balance(self.wrpc, self.key, "regtest", out), 0)
+            self.assertIn("landed orchids", out.getvalue())
+            self.assertNotIn("not served", out.getvalue())
+            claimed = expected
 
         with self.subTest("a reorg across the land"):
             tip = self.node("getblockcount")
@@ -178,6 +215,12 @@ class RegtestEndToEnd(unittest.TestCase):
             coins = self._coins()
             self.assertEqual(len(coins), 1)
             self.assertEqual(coins[0]["latent_sats"], 0)
+            # vector 14: the balance was undone with its block and
+            # recomputed at the replacement block's W (the same height
+            # here, so the same amount; the undo path is what is tested)
+            self.assertEqual(self._seeds()["seeds"],
+                             self._expected_amount(before["runs"], tip))
+            self.assertEqual(self.wrpc.getindexinfo()["lands"], 1)
 
         with self.subTest("external claim-and-collect, signed and"
                           " broadcast by Core"):
@@ -211,6 +254,15 @@ class RegtestEndToEnd(unittest.TestCase):
             returned = self.wrpc.getaddressutxos(funding)
             self.assertEqual(len(returned), 1)
             self.assertEqual(returned[0]["latent_sats"], 0)
+            # The collect's seeds land on the 330-sat carrier (the first
+            # non-OP_RETURN output), not on the return to the funder.
+            (carrier,) = [c for c in coins if c["sats"] == 330]
+            collected = self._seeds({"txid": carrier["txid"],
+                                     "vout": carrier["vout"]})["seeds"]
+            self.assertGreater(collected, 0)
+            self.assertEqual(self._seeds(funding)["seeds"], 0)
+            self.assertEqual(self._seeds()["seeds"], claimed + collected)
+            self.assertEqual(self.wrpc.getindexinfo()["lands"], 2)
 
         with self.subTest("withdraw moves only bitcoin"):
             dest = self.node("getnewaddress", "", "bech32", wallet=True)
@@ -224,15 +276,28 @@ class RegtestEndToEnd(unittest.TestCase):
             got = self.wrpc.getaddressutxos(dest)
             self.assertEqual([c["sats"] for c in got], [30_000])
             self.assertEqual(got[0]["latent_sats"], 0)    # plain travelled
+            # only bitcoin left: the orchids followed the pointer home
+            self.assertEqual(self._seeds(dest)["seeds"], 0)
+            self.assertEqual(self._seeds()["seeds"], claimed + collected)
 
-        with self.subTest("send refuses until the ledger half exists"):
-            err = io.StringIO()
-            with contextlib.redirect_stderr(err):
-                rc = do_send(self.wrpc, self.key, "regtest", self.miner,
-                             "1.00", 1.0, io.StringIO(), ask=YES)
-            self.assertEqual(rc, 1)
-            self.assertIn("cannot serve settled orchid balances",
-                          err.getvalue())
+        with self.subTest("send pays orchids to another address"):
+            recipient = self.node("getnewaddress", "", "bech32", wallet=True)
+            out = io.StringIO()
+            rc = do_send(self.wrpc, self.key, "regtest", recipient,
+                         "1.00", 1.0, out, ask=YES)
+            self.assertEqual(rc, 0, out.getvalue())
+            self.assertIn("sent: ", out.getvalue())
+            self._mine()
+            theirs = self._seeds(recipient)
+            self.assertEqual(theirs["seeds"], 100)          # 1.00 orchid
+            self.assertEqual(len(theirs["utxos"]), 1)
+            (carrier,) = self.wrpc.getaddressutxos(recipient)
+            self.assertEqual(carrier["sats"], 330)
+            self.assertEqual(carrier["latent_sats"], 0)
+            self.assertEqual(self._seeds()["seeds"], claimed + collected - 100)
+            info = self.wrpc.getindexinfo()
+            self.assertEqual(info["burned"], 0)
+            self.assertEqual(info["minted"], claimed + collected)
 
 
 if __name__ == "__main__":
