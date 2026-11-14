@@ -49,6 +49,7 @@ cannot value them at the tip or relay transactions.)
 | `-rpcuser` / `-rpcpassword` | fixed credentials, for a remote server |
 | `-network` | `main`, `test`, `signet` or `regtest` (default `main`) |
 | `-wallet` | the wallet file (default `~/.claimstones/wallet.code`) |
+| `-log` | append the session to a file, as the screen shows it with your answers; the wallet code and the password are never written |
 
 Trust the server the way an Electrum user trusts an Electrum server:
 for what it *shows*, never for what you *sign*. The wallet builds and

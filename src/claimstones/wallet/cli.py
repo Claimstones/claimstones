@@ -20,11 +20,13 @@ locally (wallet/land.py, wallet-policy.md §Envelope scan).
     claimstones-wallet withdraw bc1q... 50000 2
     claimstones-wallet address | balance | backup
     ... -rpcurl http://... -rpccookie <path>/rpc.cookie -wallet <file>
+    ... -log <file>          # append the session to a file, for testing
 """
 
 from __future__ import annotations
 
 import argparse
+import contextlib
 import datetime
 import os
 import sys
@@ -54,6 +56,83 @@ _SHRINKS = "unclaimed orchids do not expire, but shrink about 3 % a month"
 _RULE = "-" * 54
 
 
+# ---------------------------------------------------------------------------
+# -log: the session as the terminal showed it, secrets left out
+# ---------------------------------------------------------------------------
+
+class _Stdout:
+    """sys.stdout as it is when written to. The `out=` defaults below
+    bind this, not the stream itself, so the -log tee installed after
+    import still sees them."""
+
+    def write(self, s: str) -> int:
+        return sys.stdout.write(s)
+
+    def flush(self) -> None:
+        sys.stdout.flush()
+
+
+STDOUT = _Stdout()
+
+
+class _Tee:
+    """A terminal stream that also appends to the -log file. It has no
+    fileno, so input() prompts through sys.stdout and reads
+    sys.stdin.readline() instead of the console directly: the prompt and
+    the answer both pass through here and the log reads like the
+    screen."""
+
+    def __init__(self, stream, log):
+        self.stream, self.log, self.paused = stream, log, False
+
+    def write(self, s: str) -> int:
+        n = self.stream.write(s)
+        self._log(s)
+        return n
+
+    def readline(self, *size) -> str:
+        line = self.stream.readline(*size)
+        self._log(line)
+        return line
+
+    def __iter__(self):
+        return iter(self.readline, "")
+
+    def _log(self, s: str) -> None:
+        if s and not self.paused:
+            self.log.write(s)
+            self.log.flush()
+
+    def flush(self) -> None:
+        self.stream.flush()
+
+    def isatty(self) -> bool:
+        return self.stream.isatty()
+
+    @property
+    def encoding(self) -> str:
+        return self.stream.encoding
+
+
+@contextlib.contextmanager
+def _unlogged(stand_in: str):
+    """Nothing written or typed in the block reaches the -log file;
+    `stand_in` takes its place. For the wallet code and the password: a
+    log is a file people copy around, and the code alone owns the
+    orchids. Without -log, a no-op."""
+    tees = [s for s in (sys.stdin, sys.stdout, sys.stderr) if isinstance(s, _Tee)]
+    for t in tees:
+        t.paused = True
+    try:
+        yield
+    finally:
+        for t in tees:
+            t.paused = False
+        if tees:
+            tees[0].log.write(stand_in + "\n")
+            tees[0].log.flush()
+
+
 def _utxos(n: int) -> str:
     """UTXO, not coin: the CLI reader knows the word, and "1 coin" reads
     as a quantity (decided 2026-11-13)."""
@@ -70,7 +149,7 @@ def _short(outpoint: str) -> str:
     return f"{txid[:10]}..{txid[-6:]}:{vout}"
 
 
-def print_report(report: CheckReport, out=sys.stdout) -> None:
+def print_report(report: CheckReport, out=STDOUT) -> None:
     w = out.write
     w(f"\n{_utxos(len(report.utxos))} "
       f"found ({report.branches} branch{'es' if report.branches != 1 else ''}, "
@@ -101,7 +180,7 @@ def print_report(report: CheckReport, out=sys.stdout) -> None:
     w("\n")
 
 
-def do_check(rpc: IndexerRpc, network: str, lines: list[str], out=sys.stdout) -> int:
+def do_check(rpc: IndexerRpc, network: str, lines: list[str], out=STDOUT) -> int:
     try:
         report = run_check(lines, rpc, network)
     except CheckInputError as e:
@@ -117,7 +196,7 @@ def do_check(rpc: IndexerRpc, network: str, lines: list[str], out=sys.stdout) ->
     return 0
 
 
-def print_claim_plan(plan: ClaimPlan, out=sys.stdout,
+def print_claim_plan(plan: ClaimPlan, out=STDOUT,
                      fee_rate: float | None = None) -> None:
     """The same shape as the collect plan (wallet-policy.md §Wording):
     sats in and unclaimed, the orchids to be landed, what is paid."""
@@ -142,7 +221,7 @@ def print_claim_plan(plan: ClaimPlan, out=sys.stdout,
 
 
 def do_claim(rpc: IndexerRpc, key: WalletKey, fee_rate: float,
-             out=sys.stdout, ask=input) -> int:
+             out=STDOUT, ask=input) -> int:
     try:
         plan = plan_claim(key, rpc, fee_rate)
     except TemplateError as e:
@@ -179,7 +258,7 @@ def do_claim(rpc: IndexerRpc, key: WalletKey, fee_rate: float,
     return 0
 
 
-def print_collect_plan(plan: CollectPlan, out=sys.stdout) -> None:
+def print_collect_plan(plan: CollectPlan, out=STDOUT) -> None:
     """What is on the funding address and what landing it yields; what
     the signer pays follows the file names, in do_collect."""
     w = out.write
@@ -197,7 +276,7 @@ def print_collect_plan(plan: CollectPlan, out=sys.stdout) -> None:
 
 def do_collect(rpc: IndexerRpc, key: WalletKey, network: str,
                funding_address: str, fee_rate: float,
-               out_dir: str = ".", out=sys.stdout) -> int:
+               out_dir: str = ".", out=STDOUT) -> int:
     """out_dir is where the PSBT lands; the callers pass the wallet
     file's folder, so the file is found where the wallet is, not in
     whatever directory the terminal happened to be in."""
@@ -236,7 +315,7 @@ def do_collect(rpc: IndexerRpc, key: WalletKey, network: str,
     return 0
 
 
-def do_receive(key: WalletKey, network: str, out=sys.stdout) -> int:
+def do_receive(key: WalletKey, network: str, out=STDOUT) -> int:
     out.write(f"\nwallet address: {key.address(network)}\n")
     out.write("  bitcoin sent here stays yours and becomes claimable;"
               " orchids sent by\n  another wallet arrive as balance —"
@@ -245,7 +324,7 @@ def do_receive(key: WalletKey, network: str, out=sys.stdout) -> int:
 
 
 def do_balance(rpc: IndexerRpc, key: WalletKey, network: str,
-               out=sys.stdout) -> int:
+               out=STDOUT) -> int:
     """The wallet's own UTXOs: the check report on the wallet address,
     then the landed orchids the index serves — shown apart, as
     wallet-policy.md §UTXO states asks. Until the ledger half exists
@@ -267,15 +346,17 @@ def do_balance(rpc: IndexerRpc, key: WalletKey, network: str,
     return 0
 
 
-def do_backup(key: WalletKey, out=sys.stdout) -> int:
+def do_backup(key: WalletKey, out=STDOUT) -> int:
     out.write("\nyour wallet code — write it down somewhere safe; the"
               " code alone restores\nthe wallet, and anyone who knows"
               " it owns the orchids:\n")
-    out.write(f"  {key.code}\n\n")
+    with _unlogged("  <wallet code not logged>"):
+        out.write(f"  {key.code}\n")
+    out.write("\n")
     return 0
 
 
-def print_send_plan(plan: SendPlan, out=sys.stdout) -> None:
+def print_send_plan(plan: SendPlan, out=STDOUT) -> None:
     w = out.write
     s = plan.summary
     w(f"\nsend {orchids(s.amount_seeds)} orchids to {plan.recipient}\n")
@@ -288,7 +369,7 @@ def print_send_plan(plan: SendPlan, out=sys.stdout) -> None:
 
 
 def do_send(rpc: IndexerRpc, key: WalletKey, network: str, recipient: str,
-            amount_text: str, fee_rate: float, out=sys.stdout,
+            amount_text: str, fee_rate: float, out=STDOUT,
             ask=input) -> int:
     try:
         amount_seeds = parse_orchids(amount_text)
@@ -327,7 +408,7 @@ def do_send(rpc: IndexerRpc, key: WalletKey, network: str, recipient: str,
     return 0
 
 
-def print_withdraw_plan(plan: WithdrawPlan, out=sys.stdout) -> None:
+def print_withdraw_plan(plan: WithdrawPlan, out=STDOUT) -> None:
     w = out.write
     s = plan.summary
     w(f"\nwithdraw {s.amount_sats:,} sats to {plan.destination}\n")
@@ -343,7 +424,7 @@ def print_withdraw_plan(plan: WithdrawPlan, out=sys.stdout) -> None:
 
 def do_withdraw(rpc: IndexerRpc, key: WalletKey, network: str,
                 destination: str, amount_sats: int, fee_rate: float,
-                out=sys.stdout, ask=input) -> int:
+                out=STDOUT, ask=input) -> int:
     try:
         plan = plan_withdraw(key, rpc, destination, amount_sats, fee_rate,
                              network)
@@ -382,13 +463,14 @@ def do_withdraw(rpc: IndexerRpc, key: WalletKey, network: str,
 def _ask_secret(prompt: str) -> str:
     """getpass on a terminal; plain stdin when piped (scripts, tests) —
     on Windows getpass reads the console directly and would hang a
-    piped run forever."""
-    if sys.stdin.isatty():
-        return getpass.getpass(prompt)
-    try:
-        return input(prompt)
-    except EOFError:
-        return ""
+    piped run forever. Never in the -log file."""
+    with _unlogged(f"{prompt}<not logged>"):
+        if sys.stdin.isatty():
+            return getpass.getpass(prompt)
+        try:
+            return input(prompt)
+        except EOFError:
+            return ""
 
 
 def _unlock(path: str) -> WalletKey:
@@ -435,14 +517,17 @@ def _create_wallet(path: str, network: str) -> WalletKey | None:
     print("your wallet code — write it down somewhere safe; the code"
           " alone restores the wallet" + (", password or not" if pw else "")
           + ":")
-    print(f"  {key.code}")
+    with _unlogged("  <wallet code not logged>"):
+        print(f"  {key.code}")
     print(f"wallet address: {key.address(network)}")
     return key
 
 
 def _restore_wallet(path: str, network: str) -> WalletKey | None:
+    prompt = "wallet code (orchid1...)> "
     try:
-        code = input("wallet code (orchid1...)> ").strip()
+        with _unlogged(f"{prompt}<not logged>"):
+            code = input(prompt).strip()
     except EOFError:
         return None
     if not code:
@@ -649,8 +734,35 @@ def main(argv=None) -> int:
                          " collect: funding address + fee rate;"
                          " send: address + orchids + fee rate;"
                          " withdraw: address + sats + fee rate")
+    ap.add_argument("-log", metavar="FILE",
+                    help="append the session to FILE as the terminal shows"
+                         " it, answers included; the wallet code and the"
+                         " password are never written")
     args = ap.parse_args(argv)
+    if args.log is None:
+        return _run(args)
 
+    path = os.path.abspath(args.log)
+    what = " ".join([args.command] + args.lines) if args.command else "menu"
+    saved = sys.stdin, sys.stdout, sys.stderr
+    with open(path, "a", encoding="utf-8") as log:
+        log.write(f"\n--- {datetime.datetime.now().isoformat(timespec='seconds')}"
+                  f"  claimstones-wallet -network {args.network}"
+                  f" -rpcurl {args.rpcurl}"
+                  f" -wallet {os.path.abspath(args.wallet)}  {what}\n")
+        sys.stdin, sys.stdout, sys.stderr = (_Tee(s, log) for s in saved)
+        rc = 1
+        try:
+            print(f"logging to {path}")
+            rc = _run(args)
+            return rc
+        finally:
+            sys.stdout.flush()
+            sys.stdin, sys.stdout, sys.stderr = saved
+            log.write(f"--- exit {rc}\n")
+
+
+def _run(args) -> int:
     credential = (f"{args.rpcuser}:{args.rpcpassword or ''}"
                   if args.rpcuser is not None else None)
     rpc = IndexerRpc(args.rpcurl, cookie_path=args.rpccookie,
