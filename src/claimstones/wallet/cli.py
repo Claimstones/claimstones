@@ -56,7 +56,6 @@ from claimstones.wallet.spend import (
 DEFAULT_WALLET = os.path.join(os.path.expanduser("~"),
                               ".claimstones", "wallet.code")
 
-_SHRINKS = "unclaimed orchids do not expire, but shrink about 3 % a month"
 _RULE = "-" * 54
 
 
@@ -200,56 +199,89 @@ def _link(txid: str, network: str, out, text: str | None = None) -> str:
     return f"\x1b]8;;{base}{txid}\x1b\\{text}\x1b]8;;\x1b\\"
 
 
-def print_report(report: CheckReport, out=STDOUT,
-                 network: str = "main") -> None:
+def print_report(report: CheckReport, out=STDOUT, network: str = "main",
+                 settled: int | str | None = None) -> None:
+    """The UTXO report of Check and Balance (layout of 2026-11-14).
+
+    Columns as wide as their widest value. Under an xpub or descriptor
+    each row ends with the address that locks it, in full: the one to
+    paste into [e] collect. Then the estimate's footnote and the totals.
+    `settled` is Balance's: the wallet's orchids (landed and received),
+    or the reason the server cannot say; Check passes None and shows no
+    such line. Balance also leaves out the search line, always 1 and 1
+    for one address."""
     w = out.write
-    w(f"\n{_utxos(len(report.utxos))} "
-      f"found ({report.branches} branch{'es' if report.branches != 1 else ''}, "
-      f"{report.scripts} script{'s' if report.scripts != 1 else ''} asked)\n")
-    if not report.utxos:
-        w("\n")
-        return
-    # Under an xpub or descriptor, each row ends with the address that
-    # locks it, in full: the one to paste into [e] collect, without a
-    # trip back to the other wallet to find it.
+    head = f"{_utxos(len(report.utxos))} found"
+    if settled is None:
+        head += (f" ({report.branches} branch"
+                 f"{'es' if report.branches != 1 else ''},"
+                 f" {report.scripts} script"
+                 f"{'s' if report.scripts != 1 else ''} asked)")
+    w(f"\n{head}\n")
+
+    rows = report.utxos
+    shorts = [_short(r.outpoint) for r in rows]
+    sats = [f"{r.sats:,}" for r in rows]
+    latent = [f"{r.latent_sats:,}" for r in rows]
+    est = [f"est. orchid amount {orchids(r.seeds)}*" if r.seeds is not None
+           else "" for r in rows]
+    width = lambda col: max(map(len, col), default=0)
+    w_short, w_sats, w_latent, w_est = map(width, (shorts, sats, latent, est))
     source = None
-    for row in report.utxos:
+    for row, short, s, lat, e in zip(rows, shorts, sats, latent, est):
         if row.source != source:
             source = row.source
             label = source if len(source) <= 64 else source[:61] + "..."
             w(f"\n  {label}\n")
-        cost = (f"est. orchids to be landed {orchids(row.seeds)}"
-                if row.seeds is not None else "")
-        if row.address and row.address != source:
-            cost = f"{cost:<38}   adr {row.address}"   # the adr column aligned
-        short = _short(row.outpoint)       # padded outside the link
         link = _link(row.outpoint.rpartition(":")[0], network, out, short)
-        w(f"    {link}{' ' * (32 - len(short))} {row.sats:>12,} sats"
-          f" {row.latent_sats:>12,} unclaimed   {cost}\n")
-    w(f"\n  total {report.total_sats:>29,} sats"
-      f" {report.total_latent_sats:>12,} unclaimed")
-    if report.total_seeds is not None:
-        w(f"   est. orchids to be landed {orchids(report.total_seeds)}")
+        line = (f"    {link}{' ' * (w_short - len(short))}  {s:>{w_sats}} sats"
+                f"  {lat:>{w_latent}} unclaimed")
+        if e:
+            line += f"   {e}"
+        if row.address and row.address != source:
+            line += f"{' ' * (w_est - len(e))}   adr {row.address}"
+        w(line + "\n")
+
     w("\n")
-    if report.valued_at_height is not None:
-        w(f"  (valued at height {report.valued_at_height:,}; {_SHRINKS})\n")
+    if report.valued_at_height is not None and rows:
+        w(f"* estimate based on claim height {report.valued_at_height:,}"
+          " - claim amount decreases ~3%/month\n\n")
     if report.no_node:
-        w("  (the server has no host node, so the orchids to be landed are"
-          " not shown; the UTXOs and their runs are exact)\n")
+        w("(the server has no host node, so the orchid amounts are not"
+          " shown; the UTXOs and their runs are exact)\n\n")
+    totals = [("total satoshis", f"{report.total_sats:,}")]
+    if settled is not None:
+        totals.append(("total orchids", settled if isinstance(settled, str)
+                       else orchids(settled)))
+    if report.total_seeds is not None and (settled is None
+                                           or report.total_seeds):
+        totals.append(("total est. orchid amount",
+                       f"{orchids(report.total_seeds)}*"))
+    # whole-number parts right-aligned, the decimals hanging
+    whole = lambda v: len(v.split(".")[0]) if v[:1].isdigit() else 0
+    w_label = max(len(k) for k, _ in totals) + 3
+    w_whole = max(whole(v) for _, v in totals)
+    for label, value in totals:
+        w(f"{label:<{w_label}}{' ' * (w_whole - whole(value))}{value}\n")
     w("\n")
+
+
+def _report(rpc: IndexerRpc, network: str, lines: list[str]) -> CheckReport | None:
+    """run_check, its failures said in plain words (None)."""
+    try:
+        return run_check(lines, rpc, network)
+    except CheckInputError as e:
+        print(f"cannot read that: {e}", file=sys.stderr)
+    except WalletRpcError as e:
+        print(f"the server refused: {e.message}", file=sys.stderr)
+    except RpcUnreachable as e:
+        print(f"no server: {e}", file=sys.stderr)
+    return None
 
 
 def do_check(rpc: IndexerRpc, network: str, lines: list[str], out=STDOUT) -> int:
-    try:
-        report = run_check(lines, rpc, network)
-    except CheckInputError as e:
-        print(f"cannot read that: {e}", file=sys.stderr)
-        return 1
-    except WalletRpcError as e:
-        print(f"the server refused: {e.message}", file=sys.stderr)
-        return 1
-    except RpcUnreachable as e:
-        print(f"no server: {e}", file=sys.stderr)
+    report = _report(rpc, network, lines)
+    if report is None:
         return 1
     print_report(report, out, network)
     return 0
@@ -385,23 +417,21 @@ def do_receive(key: WalletKey, network: str, out=STDOUT) -> int:
 def do_balance(rpc: IndexerRpc, key: WalletKey, network: str,
                out=STDOUT) -> int:
     """The wallet's own UTXOs: the check report on the wallet address,
-    then the landed orchids the index serves — shown apart, as
-    wallet-policy.md §UTXO states asks. Until the ledger half exists
-    the server has no landed balances, and this says so."""
-    rc = do_check(rpc, network, [key.address(network)], out)
-    if rc:
-        return rc
+    with the settled orchids the index serves (landed and received) as
+    "total orchids", apart from the estimate, as wallet-policy.md §UTXO
+    states asks. A server without the ledger half says so there."""
+    report = _report(rpc, network, [key.address(network)])
+    if report is None:
+        return 1
     try:
         balance = rpc.getorchidbalance(key.script.hex())
+        settled = sum(u.get("seeds", 0) for u in balance.get("utxos", []))
     except WalletRpcError:
-        out.write("  landed orchids: not served yet by this index"
-                  " (indexer-rpc.md §Planned)\n\n")
-        return 0
+        settled = "not served by this index"
     except RpcUnreachable as e:
         print(f"no server: {e}", file=sys.stderr)
         return 1
-    seeds = sum(u.get("seeds", 0) for u in balance.get("utxos", []))
-    out.write(f"  landed orchids {orchids(seeds)}\n\n")
+    print_report(report, out, network, settled)
     return 0
 
 

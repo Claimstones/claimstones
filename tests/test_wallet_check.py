@@ -6,10 +6,11 @@ from __future__ import annotations
 
 import io
 import unittest
+from unittest import mock
 
 from claimstones.bitcoin.descriptors import GAP_LIMIT, parse_line
 from claimstones.wallet.check import orchids, run_check
-from claimstones.wallet.cli import do_check, print_report
+from claimstones.wallet.cli import do_balance, do_check, print_report
 from claimstones.wallet.rpc import NO_NODE, WalletRpcError
 
 BIP84_ZPUB = ("zpub6rFR7y4Q2AijBEqTUquhVz398htDFrtymD9xYYfG1m4wAcvPhXNfE3EfH1r1AD"
@@ -115,8 +116,13 @@ class ReportTests(unittest.TestCase):
         out = io.StringIO()
         print_report(run_check([BIP84_FIRST], rpc), out)
         text = out.getvalue()
-        self.assertIn("est. orchids to be landed 50.00", text)   # 5000 seeds
-        self.assertIn("shrink about 3 % a month", text)
+        self.assertIn("est. orchid amount 50.00*", text)   # 5000 seeds
+        self.assertIn("* estimate based on claim height 972,618"
+                      " - claim amount decreases ~3%/month", text)
+        self.assertIn("1 branch, 1 script asked", text)        # Check shows the search
+        self.assertRegex(text, r"\ntotal satoshis +50,000\n")
+        self.assertRegex(text, r"\ntotal est\. orchid amount +50\.00\*\n")
+        self.assertNotIn("total orchids", text)                # Balance's line only
         # Orchids are amounts, never a "worth" (wallet-policy §Wording).
         self.assertNotIn("worth", text)
         self.assertNotIn("production cost", text)
@@ -139,6 +145,30 @@ class ReportTests(unittest.TestCase):
         print_report(run_check([BIP84_FIRST], rpc), out)
         self.assertEqual(out.getvalue().count(BIP84_FIRST), 1)
 
+    def test_balance_layout(self):
+        # The signet balance of 2026-11-14, shape for shape: plain coins,
+        # orchids served apart (landed + received), totals aligned.
+        receive, _ = zpub_scripts()
+        script = receive.derive(0).script.hex()
+
+        class WithBalance(FakeRpc):
+            def getorchidbalance(self, target):
+                return {"utxos": [{"seeds": 310_000}, {"seeds": 109}]}
+
+        key = mock.Mock(script=bytes.fromhex(script))
+        key.address.return_value = BIP84_FIRST
+        rpc = WithBalance({script: [utxo(1, 8_394, plain=8_394),
+                                    utxo(2, 330, plain=330)]})
+        out = io.StringIO()
+        self.assertEqual(do_balance(rpc, key, "main", out), 0)
+        text = out.getvalue()
+        self.assertIn("2 UTXOs found\n", text)                   # no search line
+        self.assertIn("total satoshis   8,724\n", text)
+        self.assertIn("total orchids    3,101.09\n", text)       # whole parts aligned
+        self.assertNotIn("total est.", text)                    # 0: left out
+        self.assertIn("8,394 sats  0 unclaimed   est. orchid amount 0.00*", text)
+        self.assertIn("  330 sats  0 unclaimed", text)           # columns as wide as needed
+
     def test_no_node_wording(self):
         receive, _ = zpub_scripts()
         rpc = FakeRpc({receive.derive(0).script.hex(): [utxo(1, 50_000)]},
@@ -147,7 +177,7 @@ class ReportTests(unittest.TestCase):
         print_report(run_check([BIP84_FIRST], rpc), out)
         text = out.getvalue()
         self.assertIn("no host node", text)
-        self.assertNotIn("est. orchids to be landed 5", text)
+        self.assertNotIn("est. orchid amount", text)
 
     def test_do_check_refuses_bad_input(self):
         rc = do_check(FakeRpc({}), "main", ["xprv9s21ZrQH143K3QTDL4LXw2F7HEK3"

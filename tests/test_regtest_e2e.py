@@ -160,7 +160,7 @@ class RegtestEndToEnd(unittest.TestCase):
             rc = do_balance(self.wrpc, self.key, "regtest", out)
             self.assertEqual(rc, 0, out.getvalue())
             self.assertIn("100,000,000 sats", out.getvalue())
-            self.assertIn("landed orchids 0.00", out.getvalue())   # served, none yet
+            self.assertRegex(out.getvalue(), r"total orchids +0\.00\n")   # served, none yet
 
         with self.subTest("the server knows its chain"):
             info = self.wrpc.getindexinfo()
@@ -196,7 +196,7 @@ class RegtestEndToEnd(unittest.TestCase):
             self.assertEqual(info["ledger_height"], 0)
             out = io.StringIO()
             self.assertEqual(do_balance(self.wrpc, self.key, "regtest", out), 0)
-            self.assertIn("landed orchids", out.getvalue())
+            self.assertIn("total orchids", out.getvalue())
             self.assertNotIn("not served", out.getvalue())
             claimed = expected
 
