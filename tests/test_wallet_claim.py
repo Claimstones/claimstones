@@ -88,10 +88,12 @@ class WalletKeyTests(unittest.TestCase):
     def test_wallet_file(self):
         with tempfile.TemporaryDirectory() as folder:
             path = os.path.join(folder, "sub", "wallet.code")
-            save_wallet(path, KEY)
-            self.assertEqual(load_wallet(path).secret, KEY.secret)
+            save_wallet(path, KEY, "pw")
+            self.assertEqual(load_wallet(path, "pw").secret, KEY.secret)
             with self.assertRaises(WalletKeyError):
-                save_wallet(path, WalletKey.new())   # never overwrite
+                save_wallet(path, WalletKey.new(), "pw")   # never overwrite
+            with self.assertRaisesRegex(WalletKeyError, "needs a password"):
+                save_wallet(os.path.join(folder, "plain.code"), KEY, "")
             empty = os.path.join(folder, "empty.code")
             with open(empty, "w", encoding="ascii") as f:
                 f.write("# nothing here\n")

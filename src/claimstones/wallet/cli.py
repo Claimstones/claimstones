@@ -5,8 +5,9 @@ grown one command at a time and now complete: Check (watch-only — any
 address, xpub or descriptor), Receive, Balance, Claim, Send, Withdraw,
 the external claim and collect (build the PSBT for UTXOs another
 wallet holds; that wallet signs and broadcasts), and backup by wallet
-code. The wallet file can be locked under a password; the wallet code
-alone restores either way.
+code. The wallet file is locked under a password, asked when the
+wallet opens and again before the code is shown and as the last step
+of Send and Withdraw; the wallet code alone restores, password or not.
 
 It speaks the indexer RPC (spec/indexer-rpc.md) and trusts it only for
 what it shows; everything the wallet ever signs is built and verified
@@ -346,7 +347,12 @@ def do_balance(rpc: IndexerRpc, key: WalletKey, network: str,
     return 0
 
 
-def do_backup(key: WalletKey, out=STDOUT) -> int:
+def do_backup(key: WalletKey, out=STDOUT, confirm=None) -> int:
+    """`confirm` (the CLI passes the password check) runs before the
+    code is shown; False shows nothing."""
+    if confirm is not None and not confirm():
+        out.write("the wallet code stays hidden\n")
+        return 1
     out.write("\nyour wallet code — write it down somewhere safe; the"
               " code alone restores\nthe wallet, and anyone who knows"
               " it owns the orchids:\n")
@@ -370,7 +376,9 @@ def print_send_plan(plan: SendPlan, out=STDOUT) -> None:
 
 def do_send(rpc: IndexerRpc, key: WalletKey, network: str, recipient: str,
             amount_text: str, fee_rate: float, out=STDOUT,
-            ask=input) -> int:
+            ask=input, confirm=None) -> int:
+    """`confirm` (the CLI passes the password check) is the last step
+    after the yes, before anything is signed; False sends nothing."""
     try:
         amount_seeds = parse_orchids(amount_text)
     except ValueError as e:
@@ -392,7 +400,8 @@ def do_send(rpc: IndexerRpc, key: WalletKey, network: str, recipient: str,
         answer = ask("send? [y/N] ")
     except EOFError:
         answer = ""
-    if answer.strip().lower() not in ("y", "yes"):
+    if answer.strip().lower() not in ("y", "yes") or (
+            confirm is not None and not confirm()):
         out.write("nothing sent\n")
         return 0
     try:
@@ -424,7 +433,8 @@ def print_withdraw_plan(plan: WithdrawPlan, out=STDOUT) -> None:
 
 def do_withdraw(rpc: IndexerRpc, key: WalletKey, network: str,
                 destination: str, amount_sats: int, fee_rate: float,
-                out=STDOUT, ask=input) -> int:
+                out=STDOUT, ask=input, confirm=None) -> int:
+    """`confirm` as in do_send: the last step after the yes."""
     try:
         plan = plan_withdraw(key, rpc, destination, amount_sats, fee_rate,
                              network)
@@ -444,7 +454,8 @@ def do_withdraw(rpc: IndexerRpc, key: WalletKey, network: str,
         answer = ask(prompt)
     except EOFError:
         answer = ""
-    if answer.strip().lower() not in ("y", "yes"):
+    if answer.strip().lower() not in ("y", "yes") or (
+            confirm is not None and not confirm()):
         out.write("nothing sent\n")
         return 0
     try:
@@ -490,12 +501,28 @@ def _unlock(path: str) -> WalletKey:
             print(e)
 
 
-def _ask_new_password() -> str | None:
-    """A password for a new wallet file; empty = none. Returns None
-    when the two entries disagree."""
-    pw = _ask_secret("password for the wallet file (empty for none)> ")
+def _password_ok(path: str) -> bool:
+    """The password again, checked against the file, where the wallet
+    gives itself away (backup) or its funds (send, withdraw): a wallet
+    left open on a terminal is not enough. One try; empty gives up."""
+    pw = _ask_secret("wallet password> ")
     if not pw:
-        return ""
+        return False
+    try:
+        load_wallet(path, pw)
+    except (WalletKeyError, OSError) as e:
+        print(e)
+        return False
+    return True
+
+
+def _ask_new_password() -> str | None:
+    """A password for a new wallet file, required. Returns None when it
+    is left empty or the two entries disagree."""
+    pw = _ask_secret("password for the wallet file> ")
+    if not pw:
+        print("the wallet file needs a password")
+        return None
     again = _ask_secret("the same password again> ")
     if pw != again:
         print("the passwords do not match")
@@ -509,14 +536,13 @@ def _create_wallet(path: str, network: str) -> WalletKey | None:
         return None
     key = WalletKey.new()
     try:
-        save_wallet(path, key, pw or None)
+        save_wallet(path, key, pw)
     except WalletKeyError as e:
         print(f"cannot save the wallet: {e}")
         return None
-    print(f"wallet saved to {path}" + (" (locked)" if pw else ""))
+    print(f"wallet saved to {path} (locked)")
     print("your wallet code — write it down somewhere safe; the code"
-          " alone restores the wallet" + (", password or not" if pw else "")
-          + ":")
+          " alone restores the wallet, password or not:")
     with _unlogged("  <wallet code not logged>"):
         print(f"  {key.code}")
     print(f"wallet address: {key.address(network)}")
@@ -541,11 +567,11 @@ def _restore_wallet(path: str, network: str) -> WalletKey | None:
     if pw is None:
         return None
     try:
-        save_wallet(path, key, pw or None)
+        save_wallet(path, key, pw)
     except WalletKeyError as e:
         print(f"cannot restore: {e}")
         return None
-    print(f"wallet saved to {path}" + (" (locked)" if pw else ""))
+    print(f"wallet saved to {path} (locked)")
     print(f"wallet address: {key.address(network)}")
     return key
 
@@ -589,6 +615,7 @@ def menu(rpc: IndexerRpc, network: str, wallet_path: str) -> int:
     except WalletKeyError as e:
         print(f"cannot open the wallet {wallet_path}: {e}")
     print(f"claimstones wallet — {rpc.url}, {state}")
+    confirm = lambda: _password_ok(wallet_path)
     if key is not None:
         print(f"wallet address: {key.address(network)}")
     # The menu prints once, and again on [m] or when its items change
@@ -650,7 +677,7 @@ def menu(rpc: IndexerRpc, network: str, wallet_path: str) -> int:
             do_balance(rpc, key, network)
             continue
         if choice in ("o", "backup") and key is not None:
-            do_backup(key)
+            do_backup(key, confirm=confirm)
             continue
         if choice in ("s", "send") and key is not None:
             try:
@@ -666,7 +693,8 @@ def menu(rpc: IndexerRpc, network: str, wallet_path: str) -> int:
             except ValueError:
                 print(f"not a number: {raw}")
                 continue
-            do_send(rpc, key, network, recipient, amount, fee_rate)
+            do_send(rpc, key, network, recipient, amount, fee_rate,
+                    confirm=confirm)
             continue
         if choice in ("w", "withdraw") and key is not None:
             try:
@@ -683,7 +711,8 @@ def menu(rpc: IndexerRpc, network: str, wallet_path: str) -> int:
             except ValueError:
                 print("the amount is whole sats and the fee rate a number")
                 continue
-            do_withdraw(rpc, key, network, dest, sats, fee_rate)
+            do_withdraw(rpc, key, network, dest, sats, fee_rate,
+                        confirm=confirm)
             continue
         if choice in ("e", "collect") and key is not None:
             try:
@@ -806,8 +835,9 @@ def _run(args) -> int:
         return do_receive(key, args.network)
     if args.command == "balance":
         return do_balance(rpc, key, args.network)
+    confirm = lambda: _password_ok(args.wallet)
     if args.command == "backup":
-        return do_backup(key)
+        return do_backup(key, confirm=confirm)
     if args.command == "claim":
         return do_claim(rpc, key, fee_rate)
     if args.command == "collect":
@@ -815,13 +845,14 @@ def _run(args) -> int:
                           _beside(args.wallet))
     if args.command == "send":
         return do_send(rpc, key, args.network, args.lines[0], args.lines[1],
-                       fee_rate)
+                       fee_rate, confirm=confirm)
     try:
         sats = int(args.lines[1].replace(",", ""))
     except ValueError:
         print(f"the amount is whole sats: {args.lines[1]}", file=sys.stderr)
         return 2
-    return do_withdraw(rpc, key, args.network, args.lines[0], sats, fee_rate)
+    return do_withdraw(rpc, key, args.network, args.lines[0], sats, fee_rate,
+                       confirm=confirm)
 
 
 if __name__ == "__main__":

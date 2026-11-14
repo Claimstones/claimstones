@@ -46,8 +46,8 @@ class TestWalletLog(unittest.TestCase):
             return f.read()
 
     def test_answers_logged_code_shown_but_not_logged(self):
-        save_wallet(self.wallet, KEY)
-        rc, screen = run(self.argv, "a\no\nfoo\nq\n")
+        save_wallet(self.wallet, KEY, "hunter2")
+        rc, screen = run(self.argv, "hunter2\na\no\nhunter2\nfoo\nq\n")
         self.assertEqual(rc, 0)
         log = self.read_log()
         address = KEY.address("regtest")
@@ -65,6 +65,21 @@ class TestWalletLog(unittest.TestCase):
         self.assertIn("--- exit 0\n", log)
         self.assertNotIn(CODE, log)
         self.assertNotIn(CODE[8:30], log)
+        self.assertNotIn("hunter2", log)
+
+    def test_backup_needs_the_password(self):
+        save_wallet(self.wallet, KEY, "hunter2")
+        rc, screen = run(self.argv, "hunter2\no\nnope\no\n\nq\n")
+        self.assertEqual(rc, 0)
+        self.assertNotIn(CODE, screen)
+        self.assertIn("wrong password", screen)
+        self.assertEqual(screen.count("the wallet code stays hidden"), 2)
+
+    def test_a_new_wallet_needs_a_password(self):
+        rc, screen = run(self.argv, "n\n\nq\n")
+        self.assertEqual(rc, 0)
+        self.assertIn("the wallet file needs a password", screen)
+        self.assertFalse(os.path.exists(self.wallet))
 
     def test_restore_and_password_never_logged(self):
         rc, _ = run(self.argv, f"r\n{CODE}\nhunter2\nhunter2\nq\n")
@@ -83,16 +98,16 @@ class TestWalletLog(unittest.TestCase):
         self.assertNotIn("hunter2", log)
 
     def test_no_log_without_the_flag(self):
-        save_wallet(self.wallet, KEY)
-        rc, screen = run(self.argv[:-2], "o\nq\n")
+        save_wallet(self.wallet, KEY, "hunter2")
+        rc, screen = run(self.argv[:-2], "hunter2\no\nhunter2\nq\n")
         self.assertEqual(rc, 0)
         self.assertIn(CODE, screen)
         self.assertFalse(os.path.exists(self.log))
 
     def test_streams_restored_after_a_logged_run(self):
-        save_wallet(self.wallet, KEY)
+        save_wallet(self.wallet, KEY, "hunter2")
         stdin, stdout = sys.stdin, sys.stdout
-        run(self.argv + ["address"], "")
+        run(self.argv + ["address"], "hunter2\n")
         self.assertIs(sys.stdin, stdin)
         self.assertIs(sys.stdout, stdout)
         self.assertIn("  address\n", self.read_log())

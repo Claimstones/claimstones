@@ -214,6 +214,25 @@ class CliSpendTests(unittest.TestCase):
         self.assertIn("claim first?", text)
         self.assertIn("nothing sent", text)
 
+    def test_password_is_the_last_step(self):
+        # After the yes, a failed password check sends nothing; asked
+        # only after the yes, never for a no.
+        for do, args in ((do_send, (RECIPIENT, "9.00", 1.0)),
+                         (do_withdraw, (DEST_WPKH, 30_000, 1.0))):
+            rpc = FakeRpc([utxo(1, 60_000, seeds=1_000)])
+            asked = []
+            out = io.StringIO()
+            rc = do(rpc, KEY, "main", *args, out, ask=lambda _: "y",
+                    confirm=lambda: asked.append(1) or False)
+            self.assertEqual((rc, rpc.sent, asked), (0, [], [1]))
+            self.assertIn("nothing sent", out.getvalue())
+            do(rpc, KEY, "main", *args, io.StringIO(), ask=lambda _: "n",
+               confirm=lambda: asked.append(1) or False)
+            self.assertEqual(asked, [1])
+            rc = do(rpc, KEY, "main", *args, io.StringIO(), ask=lambda _: "y",
+                    confirm=lambda: True)
+            self.assertEqual((rc, len(rpc.sent)), (0, 1))
+
 
 class WalletLockTests(unittest.TestCase):
     def test_lock_round_trip(self):
@@ -240,10 +259,14 @@ class WalletLockTests(unittest.TestCase):
             self.assertEqual(load_wallet(path, "hunter2").secret, KEY.secret)
             with self.assertRaisesRegex(WalletKeyError, "wrong password"):
                 load_wallet(path, "nope")
-            # A plain file still loads, password argument or not.
+            # A file written plain before passwords were required
+            # (2026-11-14) is refused, password argument or not.
             plain = os.path.join(folder, "plain.code")
-            save_wallet(plain, KEY)
-            self.assertEqual(load_wallet(plain).secret, KEY.secret)
+            with open(plain, "w", encoding="ascii") as f:
+                f.write(f"# claimstones wallet code\n{CODE}\n")
+            for pw in (None, "hunter2"):
+                with self.assertRaisesRegex(WalletKeyError, "without a password"):
+                    load_wallet(plain, pw)
 
 
 if __name__ == "__main__":

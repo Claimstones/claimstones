@@ -11,10 +11,12 @@ index 0. Rotation later = index 1, same code.
 
 How the secret rests on disk is each front end's business (the policy
 asks only that the code alone restores). This reference CLI keeps the
-wallet code in a file created with owner-only permissions — plain, or
-locked under a password the way bitcoind's wallet encryption works:
-the password unlocks the file, it is not the backup. The wallet code
-alone still restores everything, password forgotten or not.
+wallet code in a file created with owner-only permissions, always
+locked under a password the way bitcoind's wallet encryption works
+(decided 2026-11-14: no plain wallet files; one written plain before
+that is refused): the password unlocks the file, it is not the backup.
+The wallet code alone still restores everything, password forgotten
+or not.
 
 The lock, standard library only: scrypt stretches the password
 (n=2^15, r=8 — tens of milliseconds and 32 MiB, so guessing is slow),
@@ -102,7 +104,7 @@ class WalletKey:
 
 
 # ---------------------------------------------------------------------------
-# The wallet file: one line, plain or locked, comments ignored
+# The wallet file: one locked line, comments ignored
 # ---------------------------------------------------------------------------
 
 _LOCKED = "locked/scrypt"
@@ -142,8 +144,9 @@ def unlock_line(line: str, password: str) -> WalletKey:
 
 
 def load_wallet(path: str, password: str | None = None) -> WalletKey:
-    """The key from the wallet file. A locked file raises WalletLocked
-    until a password is given; a wrong password is WalletKeyError."""
+    """The key from the wallet file. It raises WalletLocked until a
+    password is given; a wrong password is WalletKeyError, and so is a
+    file holding the code unlocked."""
     with open(path, encoding="ascii") as f:
         for line in f:
             line = line.strip()
@@ -153,14 +156,19 @@ def load_wallet(path: str, password: str | None = None) -> WalletKey:
                 if password is None:
                     raise WalletLocked(path)
                 return unlock_line(line, password)
-            return WalletKey.from_code(line)
+            raise WalletKeyError(
+                f"{path} holds the wallet code without a password, and"
+                " this wallet opens only locked files; restore from the"
+                " wallet code into a new file to set one")
     raise WalletKeyError(f"no wallet code in {path}")
 
 
-def save_wallet(path: str, key: WalletKey, password: str | None = None) -> None:
-    """Writes the wallet file; refuses to overwrite one that exists.
-    With a password the stored line is locked; the wallet code shown at
-    creation stays the only backup either way."""
+def save_wallet(path: str, key: WalletKey, password: str) -> None:
+    """Writes the wallet file, locked under `password`; refuses to
+    overwrite one that exists, and refuses an empty password. The wallet
+    code shown at creation stays the only backup."""
+    if not password:
+        raise WalletKeyError("the wallet file needs a password")
     folder = os.path.dirname(path)
     if folder:
         os.makedirs(folder, exist_ok=True)
@@ -169,11 +177,6 @@ def save_wallet(path: str, key: WalletKey, password: str | None = None) -> None:
     except FileExistsError:
         raise WalletKeyError(f"a wallet already exists at {path}") from None
     with os.fdopen(fd, "w", encoding="ascii", newline="\n") as f:
-        if password:
-            f.write("# claimstones wallet, locked - the wallet code alone"
-                    " restores it, password or not\n")
-            f.write(lock_line(key, password) + "\n")
-        else:
-            f.write("# claimstones wallet code - the code alone restores"
-                    " the wallet\n")
-            f.write(key.code + "\n")
+        f.write("# claimstones wallet, locked - the wallet code alone"
+                " restores it, password or not\n")
+        f.write(lock_line(key, password) + "\n")

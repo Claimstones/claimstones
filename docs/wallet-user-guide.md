@@ -80,10 +80,13 @@ Two warnings, both absolute:
 
 The wallet file (default `~/.claimstones/wallet.code`) holds the code,
 created readable by your user only, and deserves the same care as a
-Bitcoin Core wallet file. At creation you can set a **password**: the
-file is then locked (scrypt-stretched, authenticated), and the wallet
-asks for the password when it opens — the same idea as bitcoind's
-wallet encryption. The password protects the file on disk; it is not
+Bitcoin Core wallet file. Creating or restoring a wallet always sets a
+**password**: the file is locked (scrypt-stretched, authenticated),
+and the wallet asks for the password when it opens — the same idea as
+bitcoind's wallet encryption — and again before it shows the wallet
+code ([o] backup) and as the last step of Send and Withdraw, after
+your yes, so a wallet left open on a screen cannot be emptied or
+copied. The password protects the file on disk; it is not
 the backup. The wallet code alone restores everything, password
 forgotten or not — and whoever has the code never needs the password.
 The wallet never overwrites an existing wallet file — restoring over
