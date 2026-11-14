@@ -11,7 +11,8 @@ import tempfile
 import unittest
 from unittest import mock
 
-from claimstones.wallet.cli import main
+from claimstones.wallet import cli
+from claimstones.wallet.cli import _Tee, _link, main
 from claimstones.wallet.keys import WalletKey, load_wallet, save_wallet
 
 CODE = "orchid1qqqsyqcyq5rqwzqfpg9scrgwpugpzysnzs23v9ccrydpk8qarc0sa7d8kr"
@@ -125,6 +126,40 @@ class TestWalletLog(unittest.TestCase):
         self.assertIs(sys.stdin, stdin)
         self.assertIs(sys.stdout, stdout)
         self.assertIn("  address\n", self.read_log())
+
+
+TXID = "2b29727795ced1d5fdc272e6ce728c6c87a9b10c789e8fab676f22ced17546ca"
+
+
+class Terminal(io.StringIO):
+    def isatty(self):
+        return True
+
+
+class TestTxidLinks(unittest.TestCase):
+
+    def test_a_link_on_a_terminal_plain_elsewhere(self):
+        with mock.patch.object(cli, "_vt_on", lambda: True):
+            self.assertEqual(
+                _link(TXID, "signet", Terminal()),
+                f"\x1b]8;;https://mempool.space/signet/tx/{TXID}\x1b\\{TXID}"
+                "\x1b]8;;\x1b\\")
+            self.assertIn("https://mempool.space/tx/",
+                          _link(TXID, "main", Terminal()))
+            self.assertEqual(_link(TXID, "signet", io.StringIO()), TXID)  # piped
+            self.assertEqual(_link(TXID, "regtest", Terminal()), TXID)   # no explorer
+            self.assertEqual(_link(TXID, "signet", Terminal(), "2b29..ca:1")[-17:],
+                             "2b29..ca:1\x1b]8;;\x1b\\")
+        with mock.patch.object(cli, "_vt_on", lambda: False):
+            self.assertEqual(_link(TXID, "signet", Terminal()), TXID)    # old console
+
+    def test_the_log_gets_the_text_only(self):
+        screen, log = Terminal(), io.StringIO()
+        with mock.patch.object(cli, "_vt_on", lambda: True):
+            tee = _Tee(screen, log)
+            tee.write(f"sent: txid {_link(TXID, 'signet', tee)}\n")
+        self.assertIn("\x1b]8;;", screen.getvalue())
+        self.assertEqual(log.getvalue(), f"sent: txid {TXID}\n")
 
 
 if __name__ == "__main__":

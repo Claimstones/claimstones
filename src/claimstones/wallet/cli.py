@@ -29,7 +29,9 @@ from __future__ import annotations
 import argparse
 import contextlib
 import datetime
+import functools
 import os
+import re
 import sys
 
 import getpass
@@ -73,6 +75,9 @@ class _Stdout:
     def flush(self) -> None:
         sys.stdout.flush()
 
+    def isatty(self) -> bool:
+        return sys.stdout.isatty()
+
 
 STDOUT = _Stdout()
 
@@ -102,7 +107,7 @@ class _Tee:
 
     def _log(self, s: str) -> None:
         if s and not self.paused:
-            self.log.write(s)
+            self.log.write(_OSC8.sub("", s))     # links: the text only
             self.log.flush()
 
     def flush(self) -> None:
@@ -151,7 +156,52 @@ def _short(outpoint: str) -> str:
     return f"{txid[:10]}..{txid[-6:]}:{vout}"
 
 
-def print_report(report: CheckReport, out=STDOUT) -> None:
+# ---------------------------------------------------------------------------
+# txids as terminal hyperlinks to an explorer
+# ---------------------------------------------------------------------------
+
+_EXPLORER = {"main": "https://mempool.space/tx/",
+             "test": "https://mempool.space/testnet/tx/",
+             "signet": "https://mempool.space/signet/tx/"}     # regtest: none
+_OSC8 = re.compile(r"\x1b\]8;;[^\x1b]*\x1b\\")
+
+
+@functools.cache
+def _vt_on() -> bool:
+    """Whether the console takes escape sequences; on Windows, switch it
+    on (ENABLE_VIRTUAL_TERMINAL_PROCESSING), as Python does not."""
+    if os.name != "nt":
+        return True
+    try:
+        import ctypes
+        k = ctypes.windll.kernel32
+        h = k.GetStdHandle(-11)
+        mode = ctypes.c_uint32()
+        if not k.GetConsoleMode(h, ctypes.byref(mode)):
+            return False
+        return bool(mode.value & 4) or bool(k.SetConsoleMode(h, mode.value | 4))
+    except (AttributeError, OSError):
+        return False
+
+
+def _link(txid: str, network: str, out, text: str | None = None) -> str:
+    """`text` (the txid itself by default) as an OSC 8 hyperlink to the
+    transaction on mempool.space -- on a terminal only, where it shows
+    as the text and opens on a click; piped, in the -log file, or on
+    regtest it is plain text."""
+    text = text or txid
+    base = _EXPLORER.get(network)
+    try:
+        tty = out.isatty()
+    except (AttributeError, ValueError):
+        tty = False
+    if base is None or not tty or not _vt_on():
+        return text
+    return f"\x1b]8;;{base}{txid}\x1b\\{text}\x1b]8;;\x1b\\"
+
+
+def print_report(report: CheckReport, out=STDOUT,
+                 network: str = "main") -> None:
     w = out.write
     w(f"\n{_utxos(len(report.utxos))} "
       f"found ({report.branches} branch{'es' if report.branches != 1 else ''}, "
@@ -172,7 +222,9 @@ def print_report(report: CheckReport, out=STDOUT) -> None:
                 if row.seeds is not None else "")
         if row.address and row.address != source:
             cost = f"{cost:<38}   adr {row.address}"   # the adr column aligned
-        w(f"    {_short(row.outpoint):<32} {row.sats:>12,} sats"
+        short = _short(row.outpoint)       # padded outside the link
+        link = _link(row.outpoint.rpartition(":")[0], network, out, short)
+        w(f"    {link}{' ' * (32 - len(short))} {row.sats:>12,} sats"
           f" {row.latent_sats:>12,} unclaimed   {cost}\n")
     w(f"\n  total {report.total_sats:>29,} sats"
       f" {report.total_latent_sats:>12,} unclaimed")
@@ -199,7 +251,7 @@ def do_check(rpc: IndexerRpc, network: str, lines: list[str], out=STDOUT) -> int
     except RpcUnreachable as e:
         print(f"no server: {e}", file=sys.stderr)
         return 1
-    print_report(report, out)
+    print_report(report, out, network)
     return 0
 
 
@@ -228,7 +280,7 @@ def print_claim_plan(plan: ClaimPlan, out=STDOUT,
 
 
 def do_claim(rpc: IndexerRpc, key: WalletKey, fee_rate: float,
-             out=STDOUT, ask=input) -> int:
+             out=STDOUT, ask=input, network: str = "main") -> int:
     try:
         plan = plan_claim(key, rpc, fee_rate)
     except TemplateError as e:
@@ -261,7 +313,7 @@ def do_claim(rpc: IndexerRpc, key: WalletKey, fee_rate: float,
     except RpcUnreachable as e:
         print(f"no server: {e}", file=sys.stderr)
         return 1
-    out.write(f"claim sent: {txid}\n")
+    out.write(f"claim sent: txid {_link(txid, network, out)}\n")
     return 0
 
 
@@ -419,7 +471,7 @@ def do_send(rpc: IndexerRpc, key: WalletKey, network: str, recipient: str,
     except (WalletRpcError, RpcUnreachable) as e:
         print(f"the server refused the transaction: {e}", file=sys.stderr)
         return 1
-    out.write(f"sent: {txid}\n")
+    out.write(f"sent: txid {_link(txid, network, out)}\n")
     return 0
 
 
@@ -473,7 +525,7 @@ def do_withdraw(rpc: IndexerRpc, key: WalletKey, network: str,
     except (WalletRpcError, RpcUnreachable) as e:
         print(f"the server refused the transaction: {e}", file=sys.stderr)
         return 1
-    out.write(f"withdrawal sent: {txid}\n")
+    out.write(f"withdrawal sent: txid {_link(txid, network, out)}\n")
     return 0
 
 
@@ -707,7 +759,7 @@ def menu(rpc: IndexerRpc, network: str, wallet_path: str) -> int:
             except ValueError:
                 print(f"not a number: {raw}")
                 continue
-            do_claim(rpc, key, fee_rate)
+            do_claim(rpc, key, fee_rate, network=network)
             continue
         if choice in ("a", "receive", "address") and key is not None:
             do_receive(key, network)
@@ -881,7 +933,7 @@ def _run(args) -> int:
     if args.command == "backup":
         return do_backup(key, confirm=confirm)
     if args.command == "claim":
-        return do_claim(rpc, key, fee_rate)
+        return do_claim(rpc, key, fee_rate, network=args.network)
     if args.command == "collect":
         return do_collect(rpc, key, args.network, args.lines[0], fee_rate,
                           _beside(args.wallet))
