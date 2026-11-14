@@ -159,24 +159,20 @@ def print_report(report: CheckReport, out=STDOUT) -> None:
     if not report.utxos:
         w("\n")
         return
-    # Under an xpub or descriptor, the UTXOs are grouped by the address
-    # that locks them, written in full: the one to paste into [e]
-    # collect, without a trip back to the other wallet to find it.
-    source = address = None
+    # Under an xpub or descriptor, each row ends with the address that
+    # locks it, in full: the one to paste into [e] collect, without a
+    # trip back to the other wallet to find it.
+    source = None
     for row in report.utxos:
         if row.source != source:
-            source, address = row.source, None
+            source = row.source
             label = source if len(source) <= 64 else source[:61] + "..."
             w(f"\n  {label}\n")
-        indent = "    "
-        if row.address and row.address != source:
-            if row.address != address:
-                address = row.address
-                w(f"    {address}\n")
-            indent = "      "
         cost = (f"est. orchids to be landed {orchids(row.seeds)}"
                 if row.seeds is not None else "")
-        w(f"{indent}{_short(row.outpoint):<32} {row.sats:>12,} sats"
+        if row.address and row.address != source:
+            cost = f"{cost:<38}   adr {row.address}"   # the adr column aligned
+        w(f"    {_short(row.outpoint):<32} {row.sats:>12,} sats"
           f" {row.latent_sats:>12,} unclaimed   {cost}\n")
     w(f"\n  total {report.total_sats:>29,} sats"
       f" {report.total_latent_sats:>12,} unclaimed")

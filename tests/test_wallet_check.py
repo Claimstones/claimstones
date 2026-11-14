@@ -121,20 +121,20 @@ class ReportTests(unittest.TestCase):
         self.assertNotIn("worth", text)
         self.assertNotIn("production cost", text)
 
-    def test_xpub_rows_under_their_full_address(self):
+    def test_xpub_rows_end_with_their_full_address(self):
         receive, change = zpub_scripts()
         first, other = receive.derive(0), change.derive(3)
         rpc = FakeRpc({first.script.hex(): [utxo(1, 50_000), utxo(2, 9_000)],
                        other.script.hex(): [utxo(3, 7_000)]})
         out = io.StringIO()
         print_report(run_check([BIP84_ZPUB], rpc), out)
-        lines = out.getvalue().splitlines()
-        self.assertEqual(lines.count(f"    {first.address}"), 1)   # once, two rows
-        self.assertEqual(lines.count(f"    {other.address}"), 1)
-        at = lines.index(f"    {first.address}")
-        self.assertTrue(lines[at + 1].startswith("      0101"))
-        self.assertTrue(lines[at + 2].startswith("      0202"))
-        # a pasted address is its own heading: no second address line
+        rows = [l for l in out.getvalue().splitlines() if " sats " in l
+                and not l.lstrip().startswith("total")]
+        self.assertEqual([r.split()[0][:4] for r in rows], ["0101", "0202", "0303"])
+        self.assertTrue(rows[0].endswith(f"   adr {first.address}"))
+        self.assertTrue(rows[1].endswith(f"   adr {first.address}"))
+        self.assertTrue(rows[2].endswith(f"   adr {other.address}"))
+        # a pasted address is its own heading: no adr on its rows
         out = io.StringIO()
         print_report(run_check([BIP84_FIRST], rpc), out)
         self.assertEqual(out.getvalue().count(BIP84_FIRST), 1)
