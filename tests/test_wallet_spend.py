@@ -16,8 +16,8 @@ from claimstones.protocol.codec import Envelope, decipher
 from claimstones.wallet.check import parse_orchids
 from claimstones.wallet.cli import do_send, do_withdraw
 from claimstones.wallet.keys import (
-    WalletKey, WalletKeyError, WalletLocked, load_wallet, lock_line,
-    save_wallet, unlock_line,
+    WalletKey, WalletKeyError, WalletLocked, change_password, is_locked,
+    load_wallet, lock_line, save_wallet, unlock_line,
 )
 from claimstones.wallet.land import CARRIER_SATS, TemplateError
 from claimstones.wallet.rpc import NOT_FOUND, WalletRpcError
@@ -260,13 +260,35 @@ class WalletLockTests(unittest.TestCase):
             with self.assertRaisesRegex(WalletKeyError, "wrong password"):
                 load_wallet(path, "nope")
             # A file written plain before passwords were required
-            # (2026-11-14) is refused, password argument or not.
+            # (2026-11-14): its password is empty, nothing else opens it.
             plain = os.path.join(folder, "plain.code")
             with open(plain, "w", encoding="ascii") as f:
                 f.write(f"# claimstones wallet code\n{CODE}\n")
-            for pw in (None, "hunter2"):
-                with self.assertRaisesRegex(WalletKeyError, "without a password"):
-                    load_wallet(plain, pw)
+            self.assertFalse(is_locked(plain))
+            for pw in (None, ""):
+                self.assertEqual(load_wallet(plain, pw).secret, KEY.secret)
+            with self.assertRaisesRegex(WalletKeyError, "press Enter"):
+                load_wallet(plain, "hunter2")
+
+    def test_change_password(self):
+        with tempfile.TemporaryDirectory() as folder:
+            path = os.path.join(folder, "wallet.code")
+            with open(path, "w", encoding="ascii") as f:
+                f.write(f"{CODE}\n")
+            with self.assertRaisesRegex(WalletKeyError, "at least 6"):
+                change_password(path, "", "short")
+            with self.assertRaises(WalletKeyError):
+                change_password(path, "wrong1", "hunter2")
+            self.assertFalse(is_locked(path))            # both left it plain
+            change_password(path, "", "hunter2")         # the plain file locked
+            self.assertTrue(is_locked(path))
+            with open(path, encoding="ascii") as f:
+                self.assertNotIn(CODE, f.read())
+            with self.assertRaisesRegex(WalletKeyError, "wrong password"):
+                change_password(path, "", "secret1")
+            change_password(path, "hunter2", "secret1")
+            self.assertEqual(load_wallet(path, "secret1").secret, KEY.secret)
+            self.assertEqual(os.listdir(folder), ["wallet.code"])   # no leftover
 
 
 if __name__ == "__main__":

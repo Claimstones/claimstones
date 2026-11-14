@@ -11,12 +11,15 @@ index 0. Rotation later = index 1, same code.
 
 How the secret rests on disk is each front end's business (the policy
 asks only that the code alone restores). This reference CLI keeps the
-wallet code in a file created with owner-only permissions, always
-locked under a password the way bitcoind's wallet encryption works
-(decided 2026-11-14: no plain wallet files; one written plain before
-that is refused): the password unlocks the file, it is not the backup.
-The wallet code alone still restores everything, password forgotten
-or not.
+wallet code in a file created with owner-only permissions, locked
+under a password the way bitcoind's wallet encryption works: the
+password unlocks the file, it is not the backup. The wallet code alone
+still restores everything, password forgotten or not.
+
+Decided 2026-11-14: a new password has at least MIN_PASSWORD
+characters, so no new file is written plain. A file written plain
+before that opens as a wallet whose password is empty, and
+change_password locks it.
 
 The lock, standard library only: scrypt stretches the password
 (n=2^15, r=8 — tens of milliseconds and 32 MiB, so guessing is slow),
@@ -104,10 +107,12 @@ class WalletKey:
 
 
 # ---------------------------------------------------------------------------
-# The wallet file: one locked line, comments ignored
+# The wallet file: one line, locked (or plain, from before 2026-11-14),
+# comments ignored
 # ---------------------------------------------------------------------------
 
 _LOCKED = "locked/scrypt"
+MIN_PASSWORD = 6
 # n=2^15, r=8 needs exactly 32 MiB, which is also OpenSSL's default
 # ceiling — maxmem raises it so the parameters are honest, not capped.
 _SCRYPT = {"n": 2 ** 15, "r": 8, "p": 1, "maxmem": 2 ** 26}
@@ -144,31 +149,67 @@ def unlock_line(line: str, password: str) -> WalletKey:
 
 
 def load_wallet(path: str, password: str | None = None) -> WalletKey:
-    """The key from the wallet file. It raises WalletLocked until a
-    password is given; a wrong password is WalletKeyError, and so is a
-    file holding the code unlocked."""
+    """The key from the wallet file. A locked file raises WalletLocked
+    until a password is given; a wrong password is WalletKeyError. A
+    plain file's password is empty: None or "" opens it, anything else
+    is wrong."""
+    line = _wallet_line(path)
+    if line.startswith(_LOCKED):
+        if password is None:
+            raise WalletLocked(path)
+        return unlock_line(line, password)
+    if password:
+        raise WalletKeyError("wrong password (this wallet file has none:"
+                             " press Enter)")
+    return WalletKey.from_code(line)
+
+
+def is_locked(path: str) -> bool:
+    """False for a file written plain before passwords were required."""
+    return _wallet_line(path).startswith(_LOCKED)
+
+
+def _wallet_line(path: str) -> str:
     with open(path, encoding="ascii") as f:
         for line in f:
             line = line.strip()
-            if not line or line.startswith("#"):
-                continue
-            if line.startswith(_LOCKED):
-                if password is None:
-                    raise WalletLocked(path)
-                return unlock_line(line, password)
-            raise WalletKeyError(
-                f"{path} holds the wallet code without a password, and"
-                " this wallet opens only locked files; restore from the"
-                " wallet code into a new file to set one")
+            if line and not line.startswith("#"):
+                return line
     raise WalletKeyError(f"no wallet code in {path}")
 
 
+def check_new_password(password: str) -> None:
+    if len(password) < MIN_PASSWORD:
+        raise WalletKeyError(f"a password needs at least {MIN_PASSWORD}"
+                             " characters")
+
+
+def change_password(path: str, old: str, new: str) -> None:
+    """Relock the wallet file under `new` (`old` "" for a plain file).
+    The one place the wallet rewrites its file, so: the new file is
+    written beside the old one, checked to unlock to the same key, and
+    only then renamed over it. A failure anywhere leaves the old file."""
+    key = load_wallet(path, old)
+    check_new_password(new)
+    tmp = path + ".new"
+    if os.path.exists(tmp):
+        os.remove(tmp)            # a leftover of an interrupted change
+    save_wallet(tmp, key, new)
+    try:
+        if load_wallet(tmp, new).secret != key.secret:
+            raise WalletKeyError("the relocked file did not unlock to the"
+                                 " same key; nothing changed")
+        os.replace(tmp, path)
+    finally:
+        if os.path.exists(tmp):
+            os.remove(tmp)
+
+
 def save_wallet(path: str, key: WalletKey, password: str) -> None:
-    """Writes the wallet file, locked under `password`; refuses to
-    overwrite one that exists, and refuses an empty password. The wallet
-    code shown at creation stays the only backup."""
-    if not password:
-        raise WalletKeyError("the wallet file needs a password")
+    """Writes the wallet file, locked under `password` (MIN_PASSWORD
+    characters at least); refuses to overwrite one that exists. The
+    wallet code shown at creation stays the only backup."""
+    check_new_password(password)
     folder = os.path.dirname(path)
     if folder:
         os.makedirs(folder, exist_ok=True)

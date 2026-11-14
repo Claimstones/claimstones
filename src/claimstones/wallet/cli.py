@@ -39,7 +39,8 @@ from claimstones.wallet.check import CheckReport, orchids, parse_orchids, run_ch
 from claimstones.wallet.claim import ClaimPlan, plan_claim, sign_claim
 from claimstones.wallet.collect import CollectPlan, plan_collect
 from claimstones.wallet.keys import (
-    WalletKey, WalletKeyError, WalletLocked, load_wallet, save_wallet,
+    WalletKey, WalletKeyError, WalletLocked, change_password,
+    check_new_password, is_locked, load_wallet, save_wallet,
 )
 from claimstones.wallet.land import TemplateError
 from claimstones.wallet.rpc import (
@@ -504,10 +505,9 @@ def _unlock(path: str) -> WalletKey:
 def _password_ok(path: str) -> bool:
     """The password again, checked against the file, where the wallet
     gives itself away (backup) or its funds (send, withdraw): a wallet
-    left open on a terminal is not enough. One try; empty gives up."""
-    pw = _ask_secret("wallet password> ")
-    if not pw:
-        return False
+    left open on a terminal is not enough. One try. A file from before
+    passwords were required has an empty one: Enter, and only Enter."""
+    pw = _ask_secret(_password_prompt(path))
     try:
         load_wallet(path, pw)
     except (WalletKeyError, OSError) as e:
@@ -516,18 +516,51 @@ def _password_ok(path: str) -> bool:
     return True
 
 
+def _password_prompt(path: str) -> str:
+    try:
+        locked = is_locked(path)
+    except (WalletKeyError, OSError):
+        locked = True
+    return ("wallet password> " if locked
+            else "wallet password (none set, press Enter; [p] sets one)> ")
+
+
 def _ask_new_password() -> str | None:
-    """A password for a new wallet file, required. Returns None when it
-    is left empty or the two entries disagree."""
+    """A new password for the wallet file, required. Returns None when
+    it is too short or the two entries disagree."""
     pw = _ask_secret("password for the wallet file> ")
-    if not pw:
-        print("the wallet file needs a password")
+    try:
+        check_new_password(pw)
+    except WalletKeyError as e:
+        print(e)
         return None
     again = _ask_secret("the same password again> ")
     if pw != again:
         print("the passwords do not match")
         return None
     return pw
+
+
+def _change_password(path: str) -> None:
+    """[p]: the current password (Enter for a file that has none), then
+    the new one twice."""
+    old = _ask_secret(_password_prompt(path).replace("wallet password",
+                                                     "current password"))
+    try:
+        load_wallet(path, old)
+    except (WalletKeyError, OSError) as e:
+        print(e)
+        return
+    new = _ask_new_password()
+    if new is None:
+        return
+    try:
+        change_password(path, old, new)
+    except (WalletKeyError, OSError) as e:
+        print(f"the password stays as it was: {e}")
+        return
+    print("password changed; the wallet code is the same and still"
+          " restores the wallet")
 
 
 def _create_wallet(path: str, network: str) -> WalletKey | None:
@@ -635,6 +668,7 @@ def menu(rpc: IndexerRpc, network: str, wallet_path: str) -> int:
                 items.append("  [e] external claim and collect — harvest"
                              " UTXOs another wallet holds")
                 items.append("  [o] backup — show the wallet code")
+                items.append("  [p] change the wallet password")
             else:
                 items.append("  [n] new wallet    [r] restore from wallet"
                              " code")
@@ -678,6 +712,9 @@ def menu(rpc: IndexerRpc, network: str, wallet_path: str) -> int:
             continue
         if choice in ("o", "backup") and key is not None:
             do_backup(key, confirm=confirm)
+            continue
+        if choice in ("p", "password") and key is not None:
+            _change_password(wallet_path)
             continue
         if choice in ("s", "send") and key is not None:
             try:

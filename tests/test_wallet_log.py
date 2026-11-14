@@ -76,10 +76,24 @@ class TestWalletLog(unittest.TestCase):
         self.assertEqual(screen.count("the wallet code stays hidden"), 2)
 
     def test_a_new_wallet_needs_a_password(self):
-        rc, screen = run(self.argv, "n\n\nq\n")
+        rc, screen = run(self.argv, "n\n\nn\nfive5\nq\n")
         self.assertEqual(rc, 0)
-        self.assertIn("the wallet file needs a password", screen)
+        self.assertEqual(screen.count("a password needs at least 6 characters"), 2)
         self.assertFalse(os.path.exists(self.wallet))
+
+    def test_plain_file_enter_then_p_locks_it(self):
+        # A file from before passwords were required: it opens without a
+        # prompt, Enter is its password at backup, [p] locks it.
+        with open(self.wallet, "w", encoding="ascii") as f:
+            f.write(f"# claimstones wallet code\n{CODE}\n")
+        rc, screen = run(self.argv, "o\n\np\n\nhunter2\nhunter2\no\n\nq\n")
+        self.assertEqual(rc, 0)
+        self.assertIn("none set, press Enter", screen)
+        self.assertEqual(screen.count(CODE), 1)      # the first backup only
+        self.assertIn("password changed", screen)
+        self.assertIn("wrong password", screen)      # Enter no longer opens it
+        self.assertEqual(load_wallet(self.wallet, "hunter2").secret, KEY.secret)
+        self.assertNotIn("hunter2", self.read_log())
 
     def test_restore_and_password_never_logged(self):
         rc, _ = run(self.argv, f"r\n{CODE}\nhunter2\nhunter2\nq\n")
