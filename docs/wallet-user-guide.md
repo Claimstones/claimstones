@@ -219,7 +219,8 @@ These are rules from `docs/spec/wallet-policy.md`, enforced in code:
 - It only ever builds the fixed transaction templates of the spec —
   never a freehand transaction.
 - It never selects a coin carrying orchid balance as fee material for
-  something else; settled coins move only when you send orchids.
+  something else; settled coins move only when you send orchids, and
+  then whatever is not sent returns to the wallet address.
 
 ## Send: pay orchids to someone
 
@@ -237,12 +238,14 @@ The recipient's address should be their orchid wallet's (taproot or
 native segwit — the 330-sat coin is below a legacy address's dust
 bound, and the wallet refuses rather than build a transaction the
 network would drop). Coin control is automatic: settled orchid coins
-cover the amount, largest first, and only plain coins are ever added
-as fee material.
+cover the amount, largest first; plain coins pay the fee, and only if
+they run out does the wallet add its other orchid coins, whose orchids
+come straight back in the change. A coin with unclaimed sats is never
+added — claim it first.
 
-Sending waits on one server piece: settled balances per coin
-(`getorchidbalance`, planned in the index). Until the server serves
-them, Send refuses with exactly that reason.
+Sending needs settled balances per coin from the server
+(`getorchidbalance`); a server without them makes Send refuse with
+exactly that reason.
 
 ## Withdraw: bitcoin leaves, orchids stay
 

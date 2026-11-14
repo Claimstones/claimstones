@@ -103,6 +103,31 @@ class SendTests(unittest.TestCase):
         plan = plan_send(KEY, rpc, RECIPIENT, 900, 1.0)
         self.assertEqual(len(plan.summary.inputs), 2)
 
+    def test_fee_from_other_orchid_coins_when_plain_runs_out(self):
+        # The signet trial, 2026-11-14: 6 orchids from a 330-sat carrier,
+        # one 330-sat plain coin, the sats on a coin holding 123.72
+        # orchids. The plain coin goes first, then the orchid coin; its
+        # orchids are counted and ride back to the change. A coin with
+        # unclaimed sats never joins.
+        rpc = FakeRpc([utxo(1, 330, seeds=200_055),
+                       utxo(2, 8_394, seeds=12_372),
+                       utxo(3, 330),
+                       utxo(4, 50_000, latent=50_000)])
+        s = plan_send(KEY, rpc, RECIPIENT, 600, 2.0).summary
+        self.assertEqual(s.inputs, (f"{1:064x}:1", f"{3:064x}:3", f"{2:064x}:2"))
+        self.assertEqual(s.input_seeds, 200_055 + 12_372)
+        self.assertGreaterEqual(s.change_sats, 330)
+        # enough plain sats: the orchid coin stays out
+        rpc = FakeRpc([utxo(1, 330, seeds=200_055),
+                       utxo(2, 8_394, seeds=12_372), utxo(3, 5_000)])
+        s = plan_send(KEY, rpc, RECIPIENT, 600, 2.0).summary
+        self.assertEqual(s.inputs, (f"{1:064x}:1", f"{3:064x}:3"))
+        # only the latent coin left: refused, not used
+        rpc = FakeRpc([utxo(1, 330, seeds=200_055),
+                       utxo(4, 50_000, latent=50_000)])
+        with self.assertRaisesRegex(TemplateError, "not enough sats for the fee"):
+            plan_send(KEY, rpc, RECIPIENT, 600, 2.0)
+
     def test_send_refusals(self):
         with self.assertRaisesRegex(TemplateError, "not enough orchids"):
             plan_send(KEY, FakeRpc([utxo(1, 50_000, seeds=100)]),

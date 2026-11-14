@@ -38,7 +38,7 @@ The wallet builds every transaction itself from these templates (decided 2026-11
 
 **Claim** (the wallet's own coins): exactly two outputs. Output 0 `OP_RETURN OP_PUSHNUM_15` with LAND only — no pointer, no edicts; output 1 the wallet's own address, all input sats minus the miner fee. The default rule (`envelope.md`: unallocated balance to the first non-OP_RETURN output) puts the minted orchids on output 1.
 
-**Send**: exactly three outputs. Output 0 the envelope with exactly one edict — asset 0:0, the amount, to output 2 — and no LAND; output 1 the wallet's own change, all input sats minus `carrier_sats` and the miner fee (the orchid remainder lands here by the default rule; a POINTER to 1 is permitted and redundant); output 2 the recipient, exactly `carrier_sats`. Inputs are the wallet's own: settled orchid UTXOs covering the amount, plus plain UTXOs as the fee needs.
+**Send**: exactly three outputs. Output 0 the envelope with exactly one edict — asset 0:0, the amount, to output 2 — and no LAND; output 1 the wallet's own change, all input sats minus `carrier_sats` and the miner fee (the orchid remainder lands here by the default rule; a POINTER to 1 is permitted and redundant); output 2 the recipient, exactly `carrier_sats`. Inputs are the wallet's own: settled orchid UTXOs covering the amount, plus UTXOs for the fee as §Coin control orders them.
 
 **Claim and collect** (external coins, the harvest model — not built):
 
@@ -57,7 +57,7 @@ LAND is always present: sats landed before add nothing (`land.md`), so the one t
 Every UTXO has a state: **tokens** (orchid balance), **latent** (unlanded work), **both**, or **plain**. Rules:
 
 - Never auto-select a token-bearing UTXO as a sat input; an unaware spend sweeps the balance by the default rule.
-- Every transaction is one of §Transaction templates — never a freehand construction. Send inputs: settled orchid UTXOs, largest first, until the amount is covered; plain UTXOs for the fee.
+- Every transaction is one of §Transaction templates — never a freehand construction. Send inputs: settled orchid UTXOs, largest first, until the amount is covered; plain UTXOs for the fee, and only when those run out the wallet's other orchid UTXOs, most sats first — their orchids return to the change with the remainder, so nothing leaves the wallet (decided 2026-11-14). A UTXO with unclaimed sats is never added to a Send.
 - Show latent and landed balances separately, with pending in between.
 
 ## Envelope scan before signing
