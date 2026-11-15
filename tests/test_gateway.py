@@ -16,7 +16,8 @@ from http.server import BaseHTTPRequestHandler, HTTPServer, ThreadingHTTPServer
 import pytest
 
 from claimstones.bitcoin import base58
-from claimstones.indexer.gateway import make_handler, parse_target
+from claimstones.bitcoin.bech32 import encode_segwit
+from claimstones.indexer.gateway import BadTarget, make_handler, parse_target
 from claimstones.lineage.walker import Rpc
 
 GENESIS_B58 = "1A1zP1eP5QGefi2DMPTfTL5SLmv7DivfNa"
@@ -54,11 +55,27 @@ def test_base58_p2sh_round_trip():
 def test_base58_rejects_damage():
     with pytest.raises(base58.Base58Error, match="checksum"):
         base58.address_to_script(GENESIS_B58[:-1] + "b")
-    with pytest.raises(base58.Base58Error, match="version"):  # testnet
+    with pytest.raises(base58.Base58Error, match="wrong network"):  # testnet
         base58.address_to_script(
             b58encode_check(bytes([0x6F]) + bytes(20)))
+    with pytest.raises(base58.Base58Error, match="version"):
+        base58.address_to_script(
+            b58encode_check(bytes([0x30]) + bytes(20)))   # litecoin L...
     with pytest.raises(base58.Base58Error):
         base58.address_to_script("10Ol")          # 0, O, l not in alphabet
+
+
+def test_base58_test_networks():
+    h = bytes(range(20))
+    p2pkh = b58encode_check(bytes([base58.TEST_P2PKH_VERSION]) + h)
+    p2sh = b58encode_check(bytes([base58.TEST_P2SH_VERSION]) + h)
+    assert p2pkh[0] in "mn" and p2sh[0] == "2"
+    assert base58.address_to_script(p2pkh, "signet") == \
+        bytes([0x76, 0xA9, 0x14]) + h + bytes([0x88, 0xAC])
+    assert base58.address_to_script(p2sh, "signet") == \
+        bytes([0xA9, 0x14]) + h + bytes([0x87])
+    with pytest.raises(base58.Base58Error, match="for mainnet, not signet"):
+        base58.address_to_script(GENESIS_B58, "signet")
 
 
 # --------------------------------------------------------------------------
@@ -71,6 +88,22 @@ def test_parse_target_all_three_forms():
         "0014751e76e8199196d454941c45d1b3a323f1433bd6"
     assert parse_target(GENESIS_B58).hex() == GENESIS_SCRIPT
     assert parse_target(GENESIS_SCRIPT).hex() == GENESIS_SCRIPT
+
+
+def test_parse_target_refuses_another_network():
+    signet_tr = encode_segwit("tb", 1, bytes(32))
+    with pytest.raises(BadTarget, match="wrong network: tb1... is an "
+                                        "address for testnet or signet"):
+        parse_target(signet_tr)
+    assert parse_target(signet_tr, "signet")[:2] == bytes([0x51, 0x20])
+    with pytest.raises(BadTarget, match="this index is signet"):
+        parse_target("bc1qw508d6qejxtdg4y5r3zarvary0c5xw7kv8f3t4", "signet")
+    with pytest.raises(BadTarget, match="wrong network"):
+        parse_target(GENESIS_B58, "signet")
+    testnet = b58encode_check(bytes([base58.TEST_P2PKH_VERSION]) + bytes(20))
+    assert parse_target(testnet, "signet").hex() == "76a914" + "00" * 20 + "88ac"
+    # hex has no network, and a script may start with any digit
+    assert parse_target("2102" + "11" * 32 + "ac").hex()[:4] == "2102"
 
 
 def test_parse_target_garbage():
@@ -88,13 +121,17 @@ CAP = 5
 
 
 class FakeIndexerRpc(BaseHTTPRequestHandler):
+    ledger = True        # False: a birth-only index, getorchidbalance -5
+
     def do_POST(self):
         call = json.loads(self.rfile.read(
             int(self.headers["Content-Length"])))
         method = call["method"]
+        result, error = None, None
         if method == "getindexinfo":
             result = {"height": 975000, "utxos": 1, "runs": 1,
-                      "schema": "3", "activation_height": None}
+                      "schema": "3", "chain": "main",
+                      "activation_height": None}
         elif method == "getlatent":
             result = {"valued_at_height": 975000, "chainwork": "beef",
                       "seeds": 42,
@@ -102,9 +139,15 @@ class FakeIndexerRpc(BaseHTTPRequestHandler):
                                  "runs": [[100, 10]], "sats": 10,
                                  "latent_sats": 10, "seeds": 0}
                                 for i in range(N_UTXOS)]}
+        elif method == "getorchidbalance" and self.ledger:
+            result = {"height": 975000, "seeds": 700,
+                      "utxos": [{"txid": "00" * 32, "vout": 1, "seeds": 500},
+                                {"txid": "00" * 32, "vout": 6, "seeds": 200}]}
+        elif method == "getorchidbalance":
+            error = {"code": -5, "message": "no ledger half"}
         else:
             raise AssertionError(f"unexpected method {method}")
-        raw = json.dumps({"result": result, "error": None,
+        raw = json.dumps({"result": result, "error": error,
                           "id": call["id"]}).encode()
         self.send_response(200)
         self.send_header("Content-Type", "application/json")
@@ -116,9 +159,13 @@ class FakeIndexerRpc(BaseHTTPRequestHandler):
         pass
 
 
-@pytest.fixture()
-def gateway(tmp_path):
-    backend = HTTPServer(("127.0.0.1", 0), FakeIndexerRpc)
+class BirthOnlyRpc(FakeIndexerRpc):
+    ledger = False
+
+
+@pytest.fixture(params=[FakeIndexerRpc])
+def gateway(tmp_path, request):
+    backend = HTTPServer(("127.0.0.1", 0), request.param)
     threading.Thread(target=backend.serve_forever, daemon=True).start()
     cookie = tmp_path / "rpc.cookie"
     cookie.write_text("__cookie__:x")
@@ -162,6 +209,29 @@ def test_address_totals_exact_rows_capped(gateway):
     assert len(body["utxos"]) == CAP
     assert body["truncated"] is True
     assert body["height"] == 975000
+
+
+def test_address_settled_orchids(gateway):
+    status, body, _ = get(gateway + "/v1/address/" + GENESIS_B58)
+    assert status == 200
+    assert body["settled_seeds"] == 700
+    rows = {u["vout"]: u["settled_seeds"] for u in body["utxos"]}
+    assert rows == {0: 0, 1: 500, 2: 0, 3: 0, 4: 0}     # capped rows
+
+
+@pytest.mark.parametrize("gateway", [BirthOnlyRpc], indirect=True)
+def test_address_on_a_birth_only_index(gateway):
+    status, body, _ = get(gateway + "/v1/address/" + GENESIS_B58)
+    assert status == 200
+    assert body["settled_seeds"] is None                # not 0
+    assert "settled_seeds" not in body["utxos"][0]
+
+
+def test_wrong_network_is_400(gateway):
+    status, body, _ = get(gateway + "/v1/address/"
+                          + encode_segwit("tb", 1, bytes(32)))
+    assert status == 400
+    assert "wrong network" in body["error"]
 
 
 def test_bad_address_is_400(gateway):

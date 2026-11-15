@@ -3,7 +3,8 @@
 The indexer RPC (docs/spec/indexer-rpc.md) deliberately speaks only
 bech32/bech32m and raw script hex. The public gateway cannot be that
 strict: a visitor pastes whatever their wallet shows them, and a lot of
-coins still sit on 1... and 3... addresses. Nothing in this codebase
+coins still sit on 1... and 3... addresses (m.../n.../2... on the test
+networks). Nothing in this codebase
 ever needs to *produce* a legacy address; `encode_check` exists for
 extended public keys (descriptors.py re-serializes a SLIP-132 key in
 its canonical xpub/tpub form), not for addresses.
@@ -16,11 +17,17 @@ import hashlib
 ALPHABET = "123456789ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz"
 _INDEX = {c: i for i, c in enumerate(ALPHABET)}
 
-# Mainnet version bytes. Testnet is rejected on purpose: the index is a
-# mainnet index, and a testnet address answered with zeros would read as
-# "this address is empty" when the truth is "wrong network".
+# Version bytes per chain (the chain names of getblockchaininfo). Another
+# chain's address is rejected on purpose: answered with zeros it would
+# read as "this address is empty" when the truth is "wrong network".
 P2PKH_VERSION = 0x00
 P2SH_VERSION = 0x05
+TEST_P2PKH_VERSION = 0x6F                              # m... / n...
+TEST_P2SH_VERSION = 0xC4                               # 2...
+VERSIONS = {"main": (P2PKH_VERSION, P2SH_VERSION),
+            "mainnet": (P2PKH_VERSION, P2SH_VERSION)}
+for _chain in ("test", "testnet", "testnet4", "signet", "regtest"):
+    VERSIONS[_chain] = (TEST_P2PKH_VERSION, TEST_P2SH_VERSION)
 
 
 class Base58Error(ValueError):
@@ -63,15 +70,19 @@ def encode_check(payload: bytes) -> str:
     return "1" * zeros + out
 
 
-def address_to_script(addr: str) -> bytes:
-    """Legacy mainnet address -> scriptPubKey."""
+def address_to_script(addr: str, chain: str = "main") -> bytes:
+    """Legacy address of `chain` -> scriptPubKey."""
     payload = decode_check(addr)
     version, h = payload[0], payload[1:]
     if len(h) != 20:
         raise Base58Error("payload is not a 20-byte hash")
-    if version == P2PKH_VERSION:                       # 1...
+    p2pkh, p2sh = VERSIONS[chain]
+    if version == p2pkh:                               # 1... / m... n...
         return bytes([0x76, 0xA9, 0x14]) + h + bytes([0x88, 0xAC])
-    if version == P2SH_VERSION:                        # 3...
+    if version == p2sh:                                # 3... / 2...
         return bytes([0xA9, 0x14]) + h + bytes([0x87])
-    raise Base58Error(f"unsupported address version {version} "
-                      "(mainnet 1.../3... only)")
+    if any(version in v for v in VERSIONS.values()):
+        other = "mainnet" if version in VERSIONS["main"] else "a test network"
+        raise Base58Error(f"wrong network: this is an address for {other}, "
+                          f"not {chain}")
+    raise Base58Error(f"unsupported address version {version}")
