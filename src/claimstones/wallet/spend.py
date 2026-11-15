@@ -6,11 +6,12 @@ built, verified twice and signed like the claim (wallet/claim.py).
 Send: three outputs — the envelope with exactly one edict (asset 0:0,
 the amount, to output 2), the wallet's change, the recipient's 330-sat
 carrier. Inputs are the wallet's own: settled orchid coins, largest
-first, until the amount is covered, then plain coins as the fee needs
-(coin control: a token-bearing coin is never pulled in as mere fee
-material). Settled balances come from `getorchidbalance`, which the
-index serves once the ledger half exists (indexer-rpc.md §Planned);
-until then Send refuses with the reason rather than guessing.
+first, until the amount is covered, then plain coins as the fee needs,
+then -- only when the plain ones run out -- the wallet's other orchid
+coins, most sats first; their orchids return to the change with the
+remainder (decided 2026-11-14). A coin with unclaimed sats is never
+added. Settled balances come from `getorchidbalance`; a server without
+the ledger half makes Send refuse with the reason rather than guess.
 
 Withdraw: three outputs — the envelope with a POINTER at the wallet's
 own change (output 1), the change, the destination's sats (output 2).
@@ -149,10 +150,17 @@ def plan_send(key: WalletKey, rpc: IndexerRpc, recipient: str,
             f"not enough orchids: the wallet holds {covered} seeds "
             f"settled, sending {amount_seeds}")
 
-    # Plain coins (no orchids, nothing latent) as the fee needs.
-    plain = sorted((op for op, u in coins.items()
-                    if op not in seeds_by_outpoint and u["latent_sats"] == 0),
-                   key=lambda op: coins[op]["sats"], reverse=True)
+    # The fee: plain coins (no orchids, nothing latent) first, most sats
+    # first; when they run out, the other orchid coins, most sats first.
+    # Their orchids ride back to the change, so nothing moves off the
+    # wallet; the cost is only that orchid coins merge. Coins with
+    # unclaimed sats stay out: that value would follow the sats.
+    def by_sats(ops):
+        return sorted(ops, key=lambda op: coins[op]["sats"], reverse=True)
+    spare = [op for op, u in coins.items()
+             if op not in picked and u["latent_sats"] == 0]
+    fee_coins = (by_sats(op for op in spare if op not in seeds_by_outpoint)
+                 + by_sats(op for op in spare if op in seeds_by_outpoint))
     outputs = [TxOut(0, send_script([(amount_seeds, 2)])),
                TxOut(0, key.script),
                TxOut(CARRIER_SATS, recipient_script)]
@@ -162,12 +170,14 @@ def plan_send(key: WalletKey, rpc: IndexerRpc, recipient: str,
         change = input_sats - CARRIER_SATS - fee
         if change >= _DUST["tr"]:
             break
-        if not plain:
+        if not fee_coins:
             raise TemplateError(
-                f"not enough plain sats for the fee: {input_sats} sats in, "
+                f"not enough sats for the fee: {input_sats} sats in, "
                 f"{CARRIER_SATS} ride to the recipient, the fee is {fee}, "
                 f"and the change must keep {_DUST['tr']}")
-        picked.append(plain.pop(0))
+        op = fee_coins.pop(0)
+        picked.append(op)
+        covered += seeds_by_outpoint.get(op, 0)
     _check_fee_bound(fee, input_sats)
 
     outputs[1] = TxOut(change, key.script)

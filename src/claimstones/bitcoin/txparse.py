@@ -65,12 +65,19 @@ class Tx:
         return (self.weight + 3) // 4
 
 
+REGTEST_BITS = 0x207FFFFF   # regtest's constant nBits: w(h) = 2 hashes
+
+
 @dataclass
 class Block:
     height: int  # filled in by the caller (not part of the wire format)
     hash: bytes  # 32 bytes, internal order
     time: int  # header timestamp (unix)
     txs: list[Tx]
+    # the header's compact target; the indexer computes W(h) from it
+    # (docs/spec/indexer.md §Work). The parsers always fill the real
+    # value; the default is for hand-built test blocks only
+    bits: int = REGTEST_BITS
 
     @property
     def hash_hex(self) -> str:
@@ -235,7 +242,8 @@ def parse_block(raw: bytes, height: int = -1, keep_witness: bool = False) -> Blo
         # Same root as some honest block, but duplicated transactions.
         raise ValueError(f"mutated merkle tree - duplicate txids (height {height})")
 
-    return Block(height, block_hash, time, txs)
+    return Block(height, block_hash, time, txs,
+                 bits=int.from_bytes(raw[72:76], "little"))
 
 
 MAX_BLOCK_SERIALIZED_SIZE = 4_000_000  # consensus limit, post-segwit
@@ -393,7 +401,8 @@ def verify_block(
         raise ValueError(f"coinbase after the first transaction (height {height})")
 
     time = int.from_bytes(raw[68:72], "little")
-    block = Block(height, block_hash, time, txs)
+    block = Block(height, block_hash, time, txs,
+                  bits=int.from_bytes(raw[72:76], "little"))
 
     if check_witness:
         err = witness_commitment_error(block)

@@ -13,6 +13,7 @@ committed block and never block the writer) and answers lookups:
     getbirthruns <txid> <vout>       one outpoint's (height, sats) runs
     getaddressutxos <addr|script>    every unspent output on a script
     getlatent <addr|script|outpoint> runs valued in seeds at the node tip
+    getorchidbalance <addr|script|outpoint>  settled seeds, the ledger half
     sendrawtransaction <hex>         relay through the node
     help
 
@@ -165,6 +166,7 @@ class IndexQueries:
         self.nbits = nbits_cache or NbitsCache(None)
         self._table: Optional[WorkTable] = None
         self._table_lock = threading.Lock()
+        self._tip_time = (None, None)    # (block hash, header time)
 
     # --- index lookups (no node) ---
 
@@ -175,15 +177,48 @@ class IndexQueries:
         # The daemon records the chain it followed; an index from before
         # that record can only be mainnet's.
         chain = self.store.get_meta("chain") or "main"
+        ledger_height = self.store.get_meta("ledger_height")
+        height = self.store.last_height()
         return {
-            "height": self.store.last_height(),
+            "height": height,
+            # header time of the index's own tip block, so a client can
+            # say how old its view is (a stalled node, daemon or chain)
+            "time": self._block_time(height),
             "utxos": s["utxos"],
             "runs": s["runs"],
             "schema": self.store.get_meta("schema"),
             "chain": chain,
             "activation_height": activation_height(chain),
             "db_bytes": self.store.file_size(),
+            # the ledger half (indexer.md §Derived); ledger_height is the
+            # height from which balances exist, null before the fused
+            # daemon ever ran on this index
+            "lands": s["lands"],
+            "minted": s["minted"],
+            "burned": s["burned"],
+            "ledger_height": int(ledger_height) if ledger_height else None,
         }
+
+    def _block_time(self, height: int) -> Optional[int]:
+        """The header time of the block the index is at, asked of the
+        node by the hash the daemon recorded (cs_indexer.hash_key), so it
+        is the index's block even while the node is ahead or on another
+        branch. None without a node or when the node cannot say; cached
+        per hash, one header call per new block."""
+        if self.node is None or height < 0:
+            return None
+        block_hash = self.store.get_meta(f"hash:{height}")
+        if not block_hash:
+            return None
+        cached_hash, cached_time = self._tip_time
+        if cached_hash == block_hash:
+            return cached_time
+        try:
+            t = int(self.node("getblockheader", block_hash)["time"])
+        except (RpcError, OSError, KeyError, TypeError, ValueError):
+            return None
+        self._tip_time = (block_hash, t)
+        return t
 
     def getbirthruns(self, txid: str, vout: int) -> dict:
         key_txid, key_vout = _parse_outpoint(txid, vout)
@@ -196,6 +231,34 @@ class IndexQueries:
         script = _parse_script(target)
         return [{"txid": txid[::-1].hex(), "vout": vout, **_runs_out(runs)}
                 for txid, vout, runs in self.store.by_script(script)]
+
+    # --- the ledger half ---
+
+    def getorchidbalance(self, target) -> dict:
+        """Settled orchid balances in seeds (docs/spec/indexer-rpc.md):
+        every unspent output of the script that holds a nonzero balance,
+        and their sum. target: an address/script string, or
+        {"txid":..., "vout":...} for one outpoint."""
+        if not self.store.has_ledger:
+            raise RpcFault(NOT_FOUND, "this index has no ledger half yet: "
+                           "the fused daemon has not run on it "
+                           "(indexer.md §The ledger cannot be computed "
+                           "afterwards)")
+        if isinstance(target, dict):
+            txid, vout = target.get("txid", ""), target.get("vout", -1)
+            key_txid, key_vout = _parse_outpoint(txid, vout)
+            if self.store.get(key_txid, key_vout) is None:
+                raise RpcFault(NOT_FOUND, f"no unspent output {txid}:{vout}")
+            seeds = self.store.get_balance(key_txid, key_vout)
+            rows = [(key_txid, key_vout, seeds)] if seeds else []
+        else:
+            rows = self.store.balances_by_script(_parse_script(target))
+        return {
+            "height": self.store.last_height(),
+            "seeds": sum(seeds for _, _, seeds in rows),
+            "utxos": [{"txid": txid[::-1].hex(), "vout": vout, "seeds": seeds}
+                      for txid, vout, seeds in rows],
+        }
 
     # --- valuation (needs the node for W) ---
 
@@ -263,12 +326,13 @@ class IndexQueries:
             "getbirthruns <txid> <vout>",
             "getaddressutxos <address|script_hex>",
             "getlatent <address|script_hex|{txid,vout}>",
+            "getorchidbalance <address|script_hex|{txid,vout}>",
             "sendrawtransaction <hex>",
             "help",
         ]
 
     METHODS = ("getindexinfo", "getbirthruns", "getaddressutxos",
-               "getlatent", "sendrawtransaction", "help")
+               "getlatent", "getorchidbalance", "sendrawtransaction", "help")
 
     def dispatch(self, method: str, params: list):
         if method not in self.METHODS:

@@ -62,9 +62,18 @@ Relay through the host node; the node's answer (txid or refusal) passes through.
 
 The method list with signatures.
 
-## Planned, not yet served
+### `getorchidbalance <address | script_hex | {"txid":..., "vout":...}>`
 
-- **`getorchidbalance <address | outpoint>`** — settled token balances, once `ACTIVATION_HEIGHT` exists and the ledger half joins the daemon (the fused cs_indexer of the 2026-10-28 decision). Until then there are no balances to serve, and the method is absent rather than answering 0.
+Settled orchid balances from the ledger half (`indexer.md`), served since 2026-11-13: per-UTXO seeds for every unspent output of the script that holds a nonzero balance, and their sum, at the index height. The shape the CLI wallet consumes for `balance` and Send. Error `-5` for an unknown outpoint, and `-5` with a message naming the cause on an index the fused daemon has never written — a birth-only index has no balances, and the method says so rather than answering 0 (`indexer.md` §The ledger cannot be computed afterwards).
+
+```json
+{"height": 980123, "seeds": 12294,
+ "utxos": [{"txid": "...", "vout": 1, "seeds": 12294}]}
+```
+
+`getindexinfo` carries the ledger's counters beside the birth half's: `lands`, `minted`, `burned`, and `ledger_height` — the height from which balances exist, `null` until the fused daemon has run on the index. `time` is the header time (unix) of the block the index is at — asked of the node by the hash the daemon recorded, so it is the index's own tip even while the node is ahead — and `null` on a server without a node; a client shows it as the age of its view, which flags a stalled node, daemon or chain.
+
+## Planned, not yet served
 - **Confirmation status** for a relayed transaction (`gettxstatus`): mempool / confirming / settled / dropped, as the node sees it. **[decide]** whether a pure passthrough of the node's `getrawtransaction` verbosity is enough.
 - **[decide]** a `getworktable` (nbits per retarget period) so a node-less client can recompute valuation end to end from headers it verifies itself.
 

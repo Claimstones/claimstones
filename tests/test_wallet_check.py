@@ -6,10 +6,12 @@ from __future__ import annotations
 
 import io
 import unittest
+from unittest import mock
 
 from claimstones.bitcoin.descriptors import GAP_LIMIT, parse_line
 from claimstones.wallet.check import orchids, run_check
-from claimstones.wallet.cli import do_check, print_report
+from claimstones.wallet.cli import (_ago, _index_at, do_balance, do_check,
+                                    print_report)
 from claimstones.wallet.rpc import NO_NODE, WalletRpcError
 
 BIP84_ZPUB = ("zpub6rFR7y4Q2AijBEqTUquhVz398htDFrtymD9xYYfG1m4wAcvPhXNfE3EfH1r1AD"
@@ -33,6 +35,9 @@ class FakeRpc:
 
     def getaddressutxos(self, script_hex: str) -> list[dict]:
         return [dict(u) for u in self.coins.get(script_hex, [])]
+
+    def getindexinfo(self) -> dict:
+        return {"height": 972_618, "time": None}
 
     def getlatent(self, script_hex: str) -> dict:
         if not self.node:
@@ -115,11 +120,73 @@ class ReportTests(unittest.TestCase):
         out = io.StringIO()
         print_report(run_check([BIP84_FIRST], rpc), out)
         text = out.getvalue()
-        self.assertIn("est. orchids to be landed 50.00", text)   # 5000 seeds
-        self.assertIn("shrink about 3 % a month", text)
+        self.assertIn("est. orchid amount 50.00*", text)   # 5000 seeds
+        self.assertIn("* estimate based on claim height 972,618"
+                      " - claim amount decreases ~3%/month", text)
+        self.assertIn("1 branch, 1 script asked", text)        # Check shows the search
+        self.assertRegex(text, r"\ntotal satoshis +50,000\n")
+        self.assertRegex(text, r"\ntotal est\. orchid amount +50\.00\*\n")
+        self.assertNotIn("total orchids", text)                # Balance's line only
         # Orchids are amounts, never a "worth" (wallet-policy §Wording).
         self.assertNotIn("worth", text)
         self.assertNotIn("production cost", text)
+
+    def test_xpub_rows_end_with_their_full_address(self):
+        receive, change = zpub_scripts()
+        first, other = receive.derive(0), change.derive(3)
+        rpc = FakeRpc({first.script.hex(): [utxo(1, 50_000), utxo(2, 9_000)],
+                       other.script.hex(): [utxo(3, 7_000)]})
+        out = io.StringIO()
+        print_report(run_check([BIP84_ZPUB], rpc), out)
+        rows = [l for l in out.getvalue().splitlines() if " sats " in l
+                and not l.lstrip().startswith("total")]
+        self.assertEqual([r.split()[0][:4] for r in rows], ["0101", "0202", "0303"])
+        self.assertTrue(rows[0].endswith(f"   adr {first.address}"))
+        self.assertTrue(rows[1].endswith(f"   adr {first.address}"))
+        self.assertTrue(rows[2].endswith(f"   adr {other.address}"))
+        # a pasted address is its own heading: no adr on its rows
+        out = io.StringIO()
+        print_report(run_check([BIP84_FIRST], rpc), out)
+        self.assertEqual(out.getvalue().count(BIP84_FIRST), 1)
+
+    def test_balance_layout(self):
+        # The signet balance of 2026-11-14, shape for shape: plain coins,
+        # orchids served apart (landed + received), totals aligned.
+        receive, _ = zpub_scripts()
+        script = receive.derive(0).script.hex()
+
+        class WithBalance(FakeRpc):
+            def getorchidbalance(self, target):
+                return {"utxos": [{"seeds": 310_000}, {"seeds": 109}]}
+
+        key = mock.Mock(script=bytes.fromhex(script))
+        key.address.return_value = BIP84_FIRST
+        rpc = WithBalance({script: [utxo(1, 8_394, plain=8_394),
+                                    utxo(2, 330, plain=330)]})
+        out = io.StringIO()
+        self.assertEqual(do_balance(rpc, key, "main", out), 0)
+        text = out.getvalue()
+        self.assertIn("2 UTXOs found — index at block 972,618\n", text)   # no search line
+        self.assertIn("total satoshis   8,724\n", text)
+        self.assertIn("total orchids    3,101.09\n", text)       # whole parts aligned
+        self.assertNotIn("total est.", text)                    # 0: left out
+        self.assertIn("8,394 sats  0 unclaimed   est. orchid amount 0.00*", text)
+        self.assertIn("  330 sats  0 unclaimed", text)           # columns as wide as needed
+
+    def test_index_block_and_its_age(self):
+        now = 1_763_200_000
+        self.assertEqual(_ago(None, now), "")
+        self.assertEqual(_ago(now - 30, now), " (less than a minute ago)")
+        self.assertEqual(_ago(now - 60, now), " (1 minute ago)")
+        self.assertEqual(_ago(now - 12 * 60 - 5, now), " (12 minutes ago)")
+        self.assertEqual(_ago(now - 3600, now), " (1 hr 0 minutes ago)")
+        self.assertEqual(_ago(now - 2 * 3600 - 5 * 60, now), " (2 hrs 5 minutes ago)")
+        self.assertEqual(_ago(now + 600, now), " (less than a minute ago)")  # clock skew
+        with mock.patch("time.time", lambda: now):
+            self.assertEqual(_index_at({"height": 330_946, "time": now - 7500}),
+                             "index at block 330,946 (2 hrs 5 minutes ago)")
+        self.assertEqual(_index_at({"height": 5, "time": None}), "index at block 5")
+        self.assertEqual(_index_at(None), "")
 
     def test_no_node_wording(self):
         receive, _ = zpub_scripts()
@@ -129,7 +196,7 @@ class ReportTests(unittest.TestCase):
         print_report(run_check([BIP84_FIRST], rpc), out)
         text = out.getvalue()
         self.assertIn("no host node", text)
-        self.assertNotIn("est. orchids to be landed 5", text)
+        self.assertNotIn("est. orchid amount", text)
 
     def test_do_check_refuses_bad_input(self):
         rc = do_check(FakeRpc({}), "main", ["xprv9s21ZrQH143K3QTDL4LXw2F7HEK3"

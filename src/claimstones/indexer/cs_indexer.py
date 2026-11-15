@@ -1,9 +1,12 @@
-"""cs_indexer — the resident tip daemon over the LMDB birth index.
+"""cs_indexer — the resident tip daemon over the LMDB index.
 
-The fastbuild (fastbuild/) built the index to a height; this process
-keeps it at the chain tip. Named per the 2026-10-28 decision: the fused
-daemon (birth runs + orchid ledger) is cs_indexer; the ledger half joins
-once ACTIVATION_HEIGHT exists, so today this maintains birth runs only.
+The fastbuild (fastbuild/) built the birth index to a height; this
+process keeps it at the chain tip. Named per the 2026-10-28 decision:
+the fused daemon (birth runs + orchid ledger) is cs_indexer. Since
+2026-11-13 it runs both halves (docs/spec/indexer.md): runs, PLAIN after
+a land, W(h) from every header, and balances from the first envelope at
+or above ACTIVATION_HEIGHT. An index resumed above genesis gets its work
+table filled from the node's headers at startup (indexer/work.py).
 
 One cycle (`ChainFollower.sync_once`):
 
@@ -51,6 +54,7 @@ if __package__ in (None, ""):
 from claimstones.indexer.birth import (BirthIndexer, RpcBlocks, fmt,
                                        wait_for_rpc, write_status)
 from claimstones.indexer.store_lmdb import LmdbBirthStore
+from claimstones.indexer.work import fill_work
 from claimstones.lineage.walker import (Rpc, resolve_rpc_auth,
                                         resolve_rpc_cookie_path)
 
@@ -272,6 +276,12 @@ def main() -> int:
               f"{chain!r}; refusing", flush=True)
         store.close()
         return 1
+    # An index that starts above genesis (the land-free snapshot) has no
+    # W(h) for the heights it never replayed; a land needs w(h) for any
+    # birth height, so fill the table from the node's headers once.
+    last = store.last_height()
+    if last is not None and store.get_work(last) is None:
+        fill_work(store, call, last)
     indexer = BirthIndexer(store, undo_depth=args.undo_depth, chain=chain)
     blocks = RpcBlocks(rpc, timeout=args.rpc_timeout,
                        wait_max=args.rpc_wait_max)
@@ -282,6 +292,8 @@ def main() -> int:
                              stop_path=stop_path or None)
     print(f"cs_indexer: following the tip from h={store.last_height()} "
           f"-> {args.db}  (utxos {fmt(store.stats['utxos'])}, "
+          f"lands {store.stats['lands']}, minted {store.stats['minted']}, "
+          f"activation {indexer.activation_height}, "
           f"undo depth {args.undo_depth}, poll {args.poll}s)", flush=True)
     ok = False
     try:

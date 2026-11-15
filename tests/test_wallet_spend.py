@@ -16,8 +16,8 @@ from claimstones.protocol.codec import Envelope, decipher
 from claimstones.wallet.check import parse_orchids
 from claimstones.wallet.cli import do_send, do_withdraw
 from claimstones.wallet.keys import (
-    WalletKey, WalletKeyError, WalletLocked, load_wallet, lock_line,
-    save_wallet, unlock_line,
+    WalletKey, WalletKeyError, WalletLocked, change_password, is_locked,
+    load_wallet, lock_line, save_wallet, unlock_line,
 )
 from claimstones.wallet.land import CARRIER_SATS, TemplateError
 from claimstones.wallet.rpc import NOT_FOUND, WalletRpcError
@@ -102,6 +102,31 @@ class SendTests(unittest.TestCase):
         rpc = FakeRpc([utxo(1, 500, seeds=1_000), utxo(2, 30_000)])
         plan = plan_send(KEY, rpc, RECIPIENT, 900, 1.0)
         self.assertEqual(len(plan.summary.inputs), 2)
+
+    def test_fee_from_other_orchid_coins_when_plain_runs_out(self):
+        # The signet trial, 2026-11-14: 6 orchids from a 330-sat carrier,
+        # one 330-sat plain coin, the sats on a coin holding 123.72
+        # orchids. The plain coin goes first, then the orchid coin; its
+        # orchids are counted and ride back to the change. A coin with
+        # unclaimed sats never joins.
+        rpc = FakeRpc([utxo(1, 330, seeds=200_055),
+                       utxo(2, 8_394, seeds=12_372),
+                       utxo(3, 330),
+                       utxo(4, 50_000, latent=50_000)])
+        s = plan_send(KEY, rpc, RECIPIENT, 600, 2.0).summary
+        self.assertEqual(s.inputs, (f"{1:064x}:1", f"{3:064x}:3", f"{2:064x}:2"))
+        self.assertEqual(s.input_seeds, 200_055 + 12_372)
+        self.assertGreaterEqual(s.change_sats, 330)
+        # enough plain sats: the orchid coin stays out
+        rpc = FakeRpc([utxo(1, 330, seeds=200_055),
+                       utxo(2, 8_394, seeds=12_372), utxo(3, 5_000)])
+        s = plan_send(KEY, rpc, RECIPIENT, 600, 2.0).summary
+        self.assertEqual(s.inputs, (f"{1:064x}:1", f"{3:064x}:3"))
+        # only the latent coin left: refused, not used
+        rpc = FakeRpc([utxo(1, 330, seeds=200_055),
+                       utxo(4, 50_000, latent=50_000)])
+        with self.assertRaisesRegex(TemplateError, "not enough sats for the fee"):
+            plan_send(KEY, rpc, RECIPIENT, 600, 2.0)
 
     def test_send_refusals(self):
         with self.assertRaisesRegex(TemplateError, "not enough orchids"):
@@ -214,6 +239,25 @@ class CliSpendTests(unittest.TestCase):
         self.assertIn("claim first?", text)
         self.assertIn("nothing sent", text)
 
+    def test_password_is_the_last_step(self):
+        # After the yes, a failed password check sends nothing; asked
+        # only after the yes, never for a no.
+        for do, args in ((do_send, (RECIPIENT, "9.00", 1.0)),
+                         (do_withdraw, (DEST_WPKH, 30_000, 1.0))):
+            rpc = FakeRpc([utxo(1, 60_000, seeds=1_000)])
+            asked = []
+            out = io.StringIO()
+            rc = do(rpc, KEY, "main", *args, out, ask=lambda _: "y",
+                    confirm=lambda: asked.append(1) or False)
+            self.assertEqual((rc, rpc.sent, asked), (0, [], [1]))
+            self.assertIn("nothing sent", out.getvalue())
+            do(rpc, KEY, "main", *args, io.StringIO(), ask=lambda _: "n",
+               confirm=lambda: asked.append(1) or False)
+            self.assertEqual(asked, [1])
+            rc = do(rpc, KEY, "main", *args, io.StringIO(), ask=lambda _: "y",
+                    confirm=lambda: True)
+            self.assertEqual((rc, len(rpc.sent)), (0, 1))
+
 
 class WalletLockTests(unittest.TestCase):
     def test_lock_round_trip(self):
@@ -240,10 +284,36 @@ class WalletLockTests(unittest.TestCase):
             self.assertEqual(load_wallet(path, "hunter2").secret, KEY.secret)
             with self.assertRaisesRegex(WalletKeyError, "wrong password"):
                 load_wallet(path, "nope")
-            # A plain file still loads, password argument or not.
+            # A file written plain before passwords were required
+            # (2026-11-14): its password is empty, nothing else opens it.
             plain = os.path.join(folder, "plain.code")
-            save_wallet(plain, KEY)
-            self.assertEqual(load_wallet(plain).secret, KEY.secret)
+            with open(plain, "w", encoding="ascii") as f:
+                f.write(f"# claimstones wallet code\n{CODE}\n")
+            self.assertFalse(is_locked(plain))
+            for pw in (None, ""):
+                self.assertEqual(load_wallet(plain, pw).secret, KEY.secret)
+            with self.assertRaisesRegex(WalletKeyError, "press Enter"):
+                load_wallet(plain, "hunter2")
+
+    def test_change_password(self):
+        with tempfile.TemporaryDirectory() as folder:
+            path = os.path.join(folder, "wallet.code")
+            with open(path, "w", encoding="ascii") as f:
+                f.write(f"{CODE}\n")
+            with self.assertRaisesRegex(WalletKeyError, "at least 6"):
+                change_password(path, "", "short")
+            with self.assertRaises(WalletKeyError):
+                change_password(path, "wrong1", "hunter2")
+            self.assertFalse(is_locked(path))            # both left it plain
+            change_password(path, "", "hunter2")         # the plain file locked
+            self.assertTrue(is_locked(path))
+            with open(path, encoding="ascii") as f:
+                self.assertNotIn(CODE, f.read())
+            with self.assertRaisesRegex(WalletKeyError, "wrong password"):
+                change_password(path, "", "secret1")
+            change_password(path, "hunter2", "secret1")
+            self.assertEqual(load_wallet(path, "secret1").secret, KEY.secret)
+            self.assertEqual(os.listdir(folder), ["wallet.code"])   # no leftover
 
 
 if __name__ == "__main__":

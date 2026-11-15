@@ -49,6 +49,7 @@ cannot value them at the tip or relay transactions.)
 | `-rpcuser` / `-rpcpassword` | fixed credentials, for a remote server |
 | `-network` | `main`, `test`, `signet` or `regtest` (default `main`) |
 | `-wallet` | the wallet file (default `~/.claimstones/wallet.code`) |
+| `-log` | append the session to a file, as the screen shows it with your answers; the wallet code and the password are never written |
 
 Trust the server the way an Electrum user trusts an Electrum server:
 for what it *shows*, never for what you *sign*. The wallet builds and
@@ -79,14 +80,22 @@ Two warnings, both absolute:
 
 The wallet file (default `~/.claimstones/wallet.code`) holds the code,
 created readable by your user only, and deserves the same care as a
-Bitcoin Core wallet file. At creation you can set a **password**: the
-file is then locked (scrypt-stretched, authenticated), and the wallet
-asks for the password when it opens — the same idea as bitcoind's
-wallet encryption. The password protects the file on disk; it is not
+Bitcoin Core wallet file. Creating or restoring a wallet always sets a
+**password** of at least 6 characters: the file is locked
+(scrypt-stretched, authenticated), and the wallet asks for the
+password when it opens — the same idea as bitcoind's wallet
+encryption — and again before it shows the wallet code ([o] backup)
+and as the last step of Send and Withdraw, after your yes, so a wallet
+left open on a screen cannot be emptied or copied. [p] changes the
+password: the wallet writes the relocked file beside the old one,
+checks it, and only then replaces the old one. (A wallet file made
+before passwords were required has an empty one — press Enter — until
+[p] sets one.) The password protects the file on disk; it is not
 the backup. The wallet code alone restores everything, password
 forgotten or not — and whoever has the code never needs the password.
-The wallet never overwrites an existing wallet file — restoring over
-one is refused, so a mistake cannot destroy a wallet silently.
+The wallet never overwrites an existing wallet file with another
+wallet — restoring over one is refused, so a mistake cannot destroy a
+wallet silently; [p] only ever rewrites it with the same key.
 
 `claimstones-wallet backup` (or `[o]` in the menu) shows the wallet
 code again, for the day the paper needs rewriting.
@@ -210,7 +219,8 @@ These are rules from `docs/spec/wallet-policy.md`, enforced in code:
 - It only ever builds the fixed transaction templates of the spec —
   never a freehand transaction.
 - It never selects a coin carrying orchid balance as fee material for
-  something else; settled coins move only when you send orchids.
+  something else; settled coins move only when you send orchids, and
+  then whatever is not sent returns to the wallet address.
 
 ## Send: pay orchids to someone
 
@@ -228,12 +238,14 @@ The recipient's address should be their orchid wallet's (taproot or
 native segwit — the 330-sat coin is below a legacy address's dust
 bound, and the wallet refuses rather than build a transaction the
 network would drop). Coin control is automatic: settled orchid coins
-cover the amount, largest first, and only plain coins are ever added
-as fee material.
+cover the amount, largest first; plain coins pay the fee, and only if
+they run out does the wallet add its other orchid coins, whose orchids
+come straight back in the change. A coin with unclaimed sats is never
+added — claim it first.
 
-Sending waits on one server piece: settled balances per coin
-(`getorchidbalance`, planned in the index). Until the server serves
-them, Send refuses with exactly that reason.
+Sending needs settled balances per coin from the server
+(`getorchidbalance`); a server without them makes Send refuse with
+exactly that reason.
 
 ## Withdraw: bitcoin leaves, orchids stay
 
