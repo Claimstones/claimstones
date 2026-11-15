@@ -28,6 +28,7 @@ RUNS_B = [(120, 1_000), (PLAIN, 600)]
 CHAINWORK_HEX = "%064x" % (1 << 40)
 GENESIS_BITS = "1d00ffff"
 TIP = 200
+TIP_TIME = 1_763_100_000
 
 
 def fake_node(method, *params):
@@ -36,7 +37,7 @@ def fake_node(method, *params):
     if method == "getblockhash":
         return "00" * 32
     if method == "getblockheader":
-        return {"bits": GENESIS_BITS}
+        return {"bits": GENESIS_BITS, "time": TIP_TIME}
     if method == "sendrawtransaction":
         return "feed" * 16
     raise AssertionError(f"unexpected node call {method}")
@@ -52,6 +53,7 @@ def served(tmp_path_factory):
     store.put(TXID_A, 1, SCRIPT_B, RUNS_B, height=170, seeds=1234)
     store.put(TXID_B, 3, SCRIPT_A, [(150, 42)], height=171, seeds=5)
     store.set_meta("height", str(TIP))
+    store.set_meta(f"hash:{TIP}", "ab" * 32)        # as the daemon records it
     store.set_meta("ledger_height", "150")
     store.stats["lands"] = 2
     store.stats["minted"] = 1239
@@ -88,6 +90,7 @@ def test_getindexinfo(served):
     assert info["schema"] == "3"
     assert (info["lands"], info["minted"], info["burned"]) == (2, 1239, 0)
     assert info["ledger_height"] == 150
+    assert info["time"] == TIP_TIME                 # the index tip's header
 
 
 def test_getorchidbalance_by_script_and_outpoint(served):
@@ -126,7 +129,9 @@ def test_getorchidbalance_without_a_ledger(tmp_path):
     reader = LmdbBirthStore(str(tmp_path / "old"), map_mb=64, readonly=True)
     try:
         q = IndexQueries(reader)
-        assert q.getindexinfo()["ledger_height"] is None
+        info = q.getindexinfo()
+        assert info["ledger_height"] is None
+        assert info["time"] is None                 # no node: no block time
         with pytest.raises(RpcFault) as e:
             q.getorchidbalance(SCRIPT_A.hex())
         assert "no ledger half" in str(e.value)

@@ -33,6 +33,7 @@ import functools
 import os
 import re
 import sys
+import time
 
 import getpass
 
@@ -150,6 +151,28 @@ def _abbr(address: str) -> str:
     return address if len(address) <= 16 else f"{address[:6]}....{address[-5:]}"
 
 
+def _ago(t: int | None, now: float | None = None) -> str:
+    """" (2 hrs 5 minutes ago)" for a block time; "" when unknown."""
+    if t is None:
+        return ""
+    minutes = max(0, int((time.time() if now is None else now) - t)) // 60
+    hours, minutes = divmod(minutes, 60)
+    m = f"{minutes} minute{'s' if minutes != 1 else ''}"
+    if hours:
+        return f" ({hours} hr{'s' if hours != 1 else ''} {m} ago)"
+    return f" ({m} ago)" if minutes else " (less than a minute ago)"
+
+
+def _index_at(info: dict | None) -> str:
+    """Where the index is and how old that block is: the view every
+    report rests on. A block hours old flags a stalled node, daemon or
+    chain; a height behind the footnote's means the index is catching
+    up (or in a reorg, as on signet 2026-11-15)."""
+    if not info:
+        return ""
+    return f"index at block {info['height']:,}{_ago(info.get('time'))}"
+
+
 def _short(outpoint: str) -> str:
     txid, _, vout = outpoint.rpartition(":")
     return f"{txid[:10]}..{txid[-6:]}:{vout}"
@@ -200,7 +223,8 @@ def _link(txid: str, network: str, out, text: str | None = None) -> str:
 
 
 def print_report(report: CheckReport, out=STDOUT, network: str = "main",
-                 settled: int | str | None = None) -> None:
+                 settled: int | str | None = None,
+                 index: dict | None = None) -> None:
     """The UTXO report of Check and Balance (layout of 2026-11-14).
 
     Columns as wide as their widest value. Under an xpub or descriptor
@@ -209,7 +233,8 @@ def print_report(report: CheckReport, out=STDOUT, network: str = "main",
     `settled` is Balance's: the wallet's orchids (landed and received),
     or the reason the server cannot say; Check passes None and shows no
     such line. Balance also leaves out the search line, always 1 and 1
-    for one address."""
+    for one address. `index` (getindexinfo) puts the index's block and
+    its age on the first line."""
     w = out.write
     head = f"{_utxos(len(report.utxos))} found"
     if settled is None:
@@ -217,6 +242,8 @@ def print_report(report: CheckReport, out=STDOUT, network: str = "main",
                  f"{'es' if report.branches != 1 else ''},"
                  f" {report.scripts} script"
                  f"{'s' if report.scripts != 1 else ''} asked)")
+    if index:
+        head += f" — {_index_at(index)}"
     w(f"\n{head}\n")
 
     rows = report.utxos
@@ -279,11 +306,20 @@ def _report(rpc: IndexerRpc, network: str, lines: list[str]) -> CheckReport | No
     return None
 
 
+def _info(rpc: IndexerRpc) -> dict | None:
+    """getindexinfo after the report, so its height is no older than the
+    rows; None if the server will not say (the report still stands)."""
+    try:
+        return rpc.getindexinfo()
+    except (WalletRpcError, RpcUnreachable, OSError):
+        return None
+
+
 def do_check(rpc: IndexerRpc, network: str, lines: list[str], out=STDOUT) -> int:
     report = _report(rpc, network, lines)
     if report is None:
         return 1
-    print_report(report, out, network)
+    print_report(report, out, network, index=_info(rpc))
     return 0
 
 
@@ -431,7 +467,7 @@ def do_balance(rpc: IndexerRpc, key: WalletKey, network: str,
     except RpcUnreachable as e:
         print(f"no server: {e}", file=sys.stderr)
         return 1
-    print_report(report, out, network, settled)
+    print_report(report, out, network, settled, index=_info(rpc))
     return 0
 
 
@@ -722,7 +758,7 @@ def _beside(wallet_path: str) -> str:
 def menu(rpc: IndexerRpc, network: str, wallet_path: str) -> int:
     try:
         info = rpc.getindexinfo()
-        state = f"index at height {info['height']:,}"
+        state = _index_at(info)
         if info.get("activation_height") is None:
             state += ", activation not yet decided"
     except (WalletRpcError, RpcUnreachable, OSError) as e:

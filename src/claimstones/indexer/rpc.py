@@ -166,6 +166,7 @@ class IndexQueries:
         self.nbits = nbits_cache or NbitsCache(None)
         self._table: Optional[WorkTable] = None
         self._table_lock = threading.Lock()
+        self._tip_time = (None, None)    # (block hash, header time)
 
     # --- index lookups (no node) ---
 
@@ -177,8 +178,12 @@ class IndexQueries:
         # that record can only be mainnet's.
         chain = self.store.get_meta("chain") or "main"
         ledger_height = self.store.get_meta("ledger_height")
+        height = self.store.last_height()
         return {
-            "height": self.store.last_height(),
+            "height": height,
+            # header time of the index's own tip block, so a client can
+            # say how old its view is (a stalled node, daemon or chain)
+            "time": self._block_time(height),
             "utxos": s["utxos"],
             "runs": s["runs"],
             "schema": self.store.get_meta("schema"),
@@ -193,6 +198,27 @@ class IndexQueries:
             "burned": s["burned"],
             "ledger_height": int(ledger_height) if ledger_height else None,
         }
+
+    def _block_time(self, height: int) -> Optional[int]:
+        """The header time of the block the index is at, asked of the
+        node by the hash the daemon recorded (cs_indexer.hash_key), so it
+        is the index's block even while the node is ahead or on another
+        branch. None without a node or when the node cannot say; cached
+        per hash, one header call per new block."""
+        if self.node is None or height < 0:
+            return None
+        block_hash = self.store.get_meta(f"hash:{height}")
+        if not block_hash:
+            return None
+        cached_hash, cached_time = self._tip_time
+        if cached_hash == block_hash:
+            return cached_time
+        try:
+            t = int(self.node("getblockheader", block_hash)["time"])
+        except (RpcError, OSError, KeyError, TypeError, ValueError):
+            return None
+        self._tip_time = (block_hash, t)
+        return t
 
     def getbirthruns(self, txid: str, vout: int) -> dict:
         key_txid, key_vout = _parse_outpoint(txid, vout)

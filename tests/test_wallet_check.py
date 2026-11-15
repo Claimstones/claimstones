@@ -10,7 +10,8 @@ from unittest import mock
 
 from claimstones.bitcoin.descriptors import GAP_LIMIT, parse_line
 from claimstones.wallet.check import orchids, run_check
-from claimstones.wallet.cli import do_balance, do_check, print_report
+from claimstones.wallet.cli import (_ago, _index_at, do_balance, do_check,
+                                    print_report)
 from claimstones.wallet.rpc import NO_NODE, WalletRpcError
 
 BIP84_ZPUB = ("zpub6rFR7y4Q2AijBEqTUquhVz398htDFrtymD9xYYfG1m4wAcvPhXNfE3EfH1r1AD"
@@ -34,6 +35,9 @@ class FakeRpc:
 
     def getaddressutxos(self, script_hex: str) -> list[dict]:
         return [dict(u) for u in self.coins.get(script_hex, [])]
+
+    def getindexinfo(self) -> dict:
+        return {"height": 972_618, "time": None}
 
     def getlatent(self, script_hex: str) -> dict:
         if not self.node:
@@ -162,12 +166,27 @@ class ReportTests(unittest.TestCase):
         out = io.StringIO()
         self.assertEqual(do_balance(rpc, key, "main", out), 0)
         text = out.getvalue()
-        self.assertIn("2 UTXOs found\n", text)                   # no search line
+        self.assertIn("2 UTXOs found — index at block 972,618\n", text)   # no search line
         self.assertIn("total satoshis   8,724\n", text)
         self.assertIn("total orchids    3,101.09\n", text)       # whole parts aligned
         self.assertNotIn("total est.", text)                    # 0: left out
         self.assertIn("8,394 sats  0 unclaimed   est. orchid amount 0.00*", text)
         self.assertIn("  330 sats  0 unclaimed", text)           # columns as wide as needed
+
+    def test_index_block_and_its_age(self):
+        now = 1_763_200_000
+        self.assertEqual(_ago(None, now), "")
+        self.assertEqual(_ago(now - 30, now), " (less than a minute ago)")
+        self.assertEqual(_ago(now - 60, now), " (1 minute ago)")
+        self.assertEqual(_ago(now - 12 * 60 - 5, now), " (12 minutes ago)")
+        self.assertEqual(_ago(now - 3600, now), " (1 hr 0 minutes ago)")
+        self.assertEqual(_ago(now - 2 * 3600 - 5 * 60, now), " (2 hrs 5 minutes ago)")
+        self.assertEqual(_ago(now + 600, now), " (less than a minute ago)")  # clock skew
+        with mock.patch("time.time", lambda: now):
+            self.assertEqual(_index_at({"height": 330_946, "time": now - 7500}),
+                             "index at block 330,946 (2 hrs 5 minutes ago)")
+        self.assertEqual(_index_at({"height": 5, "time": None}), "index at block 5")
+        self.assertEqual(_index_at(None), "")
 
     def test_no_node_wording(self):
         receive, _ = zpub_scripts()
