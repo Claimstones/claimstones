@@ -53,8 +53,8 @@ answer).
 Totals (`seeds`, `sats`, `latent_sats`, `utxo_count`) are always exact;
 only the `utxos` rows are capped (default 100), and `truncated` says
 when they were. `seeds` is Spec 6 `getlatent`'s valuation seeds; the
-frontend's wording contract is `wallet-policy.md` ("est. production
-cost", never "value").
+frontend's wording contract is `wallet-policy.md` §Wording (amounts,
+never money).
 
 ## What it will not do
 
