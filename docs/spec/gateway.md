@@ -30,9 +30,13 @@ can run the whole stack beside their own node.
 
 ## `<target>`
 
-Whatever a visitor pastes: bech32/bech32m (any HRP), legacy base58
-(mainnet `1...`/`3...` only — a testnet address is an error, not an
-empty answer), or a raw scriptPubKey in hex. The indexer RPC itself
+Whatever a visitor pastes: bech32/bech32m, legacy base58 (`1...`/`3...`
+on mainnet, `m...`/`n...`/`2...` on the test networks), or a raw
+scriptPubKey in hex. The address must be for the index's own chain
+(`chain` of `getindexinfo`, asked once): a `tb1...` on a mainnet
+gateway, or a `bc1...` on a signet one, is a 400 naming the network,
+never an empty answer for the same script on the wrong chain. Hex
+carries no network and is looked up as given. The indexer RPC itself
 stays bech32/hex (Spec 6); friendliness is this layer's job.
 
 ## Answers
@@ -44,16 +48,21 @@ answer).
 
 ```json
 {"target": "...", "script": "...", "height": 975041,
- "chainwork": "...", "seeds": 101, "sats": 123456,
- "latent_sats": 123456, "utxo_count": 731,
+ "chainwork": "...", "seeds": 101, "settled_seeds": 310000,
+ "sats": 123456, "latent_sats": 123456, "utxo_count": 731,
  "utxos": [...at most --max-utxos rows...], "truncated": true,
  "as_of": 1794120000}
 ```
 
-Totals (`seeds`, `sats`, `latent_sats`, `utxo_count`) are always exact;
-only the `utxos` rows are capped (default 100), and `truncated` says
-when they were. `seeds` is Spec 6 `getlatent`'s valuation seeds; the
-frontend's wording contract is `wallet-policy.md` §Wording (amounts,
+Totals (`seeds`, `settled_seeds`, `sats`, `latent_sats`, `utxo_count`)
+are always exact; only the `utxos` rows are capped (default 100), and
+`truncated` says when they were. `seeds` is Spec 6 `getlatent`'s
+valuation seeds, the orchids still to be claimed; `settled_seeds` the
+orchids already on the script (Spec 6 `getorchidbalance`: landed and
+received), also per row, and `null` on an index without a ledger half
+(not 0). The two are asked one after the other, so across a new block
+they can be one block apart. The frontend's wording contract is
+`wallet-policy.md` §Wording ("est. orchids to be landed"; amounts,
 never money).
 
 ## What it will not do

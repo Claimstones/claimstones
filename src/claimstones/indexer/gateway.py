@@ -10,8 +10,10 @@ owns TLS, rate limiting and caching — and it is shaped for that job:
 
 - GET only, two paths, JSON out. Nothing here mutates anything.
 - It accepts whatever a visitor pastes: bech32/bech32m, legacy base58
-  (1.../3...), or a raw scriptPubKey in hex. The indexer RPC itself
-  stays bech32/hex only; being friendly is this layer's job.
+  (1.../3..., m.../n.../2... on the test networks), or a raw
+  scriptPubKey in hex. An address of another network than the index's
+  is refused, never answered "empty". The indexer RPC itself stays
+  bech32/hex only; being friendly is this layer's job.
 - Responses are bounded: totals are always exact, the UTXO list is
   capped at --max-utxos rows and says so with "truncated".
 - Every answer names the height and time it was computed at ("height",
@@ -27,14 +29,16 @@ Paths:
         {"height", "utxos", "runs", "activation_height", "as_of"}
 
     /v1/address/<address-or-script-hex>
-        {"target", "script", "height", "chainwork", "seeds", "sats",
-         "latent_sats", "utxo_count", "utxos": [...], "truncated",
-         "as_of"}
+        {"target", "script", "height", "chainwork", "seeds",
+         "settled_seeds", "sats", "latent_sats", "utxo_count",
+         "utxos": [...], "truncated", "as_of"}
 
         "seeds" is the latent valuation seeds = floor(A_0*N/(W*L)) of
-        spec getlatent — presentation (the "est. production cost"
-        wording, never "value") is the frontend's contract, wording in
-        wallet-policy.md.
+        spec getlatent, the orchids still to be claimed; "settled_seeds"
+        the orchids already on the script (getorchidbalance), per row
+        too, null on an index without a ledger half. Presentation ("est.
+        orchids to be landed", never "value") is the frontend's
+        contract, wording in wallet-policy.md.
 
 Errors are JSON too: {"error": msg} with 400 (bad input), 404 (no such
 path), 405 (not GET), or 502 (backend away). The edge treats 502 as
@@ -54,7 +58,7 @@ if __package__ in (None, ""):
     sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.dirname(
         os.path.abspath(__file__)))))
 from claimstones.bitcoin import base58
-from claimstones.bitcoin.bech32 import Bech32Error, address_to_script
+from claimstones.bitcoin.bech32 import HRP, Bech32Error, address_to_script
 from claimstones.lineage.walker import Rpc, RpcError
 
 DEFAULT_PORT = 7333
@@ -64,37 +68,64 @@ class BadTarget(ValueError):
     pass
 
 
-def parse_target(target: str) -> bytes:
-    """What a visitor pasted -> scriptPubKey bytes.
+_HRP_NETWORK = {"bc": "mainnet", "tb": "testnet or signet", "bcrt": "regtest"}
+_HEX = set("0123456789abcdefABCDEF")
 
-    Order matters only for legibility of errors: bech32 strings and
-    legacy addresses are disjoint alphabets in practice, and the
-    base58 checksum makes a false positive on hex astronomically
+
+def parse_target(target: str, chain: str = "main") -> bytes:
+    """What a visitor pasted -> scriptPubKey bytes, for the index's chain.
+
+    An address of another network is an error, never a lookup: its
+    script would be looked up here and answered "empty". Hex goes before
+    base58 because a script can start with any digit; a base58 address
+    made of hex characters only, at even length, is astronomically
     unlikely."""
     if not target or len(target) > 20_000:
         raise BadTarget("expected an address or script hex")
-    if "1" in target and target[:target.rfind("1")].isalpha():
-        hrp = target[:target.rfind("1")].lower()
+    low = target.lower()
+    hrp = low.rsplit("1", 1)[0] if "1" in low else ""
+    if hrp in _HRP_NETWORK:
+        expected = HRP.get(chain, "tb")
+        if hrp != expected:
+            raise BadTarget(f"wrong network: {hrp}1... is an address for "
+                            f"{_HRP_NETWORK[hrp]}, this index is {chain}")
         try:
             return address_to_script(hrp, target)
         except Bech32Error as e:
             raise BadTarget(f"bad address: {e}")
-    if target[0] in "13":
+    if len(target) % 2 == 0 and set(target) <= _HEX:
+        return bytes.fromhex(target)
+    if target[0] in "13mn2":
         try:
-            return base58.address_to_script(target)
+            return base58.address_to_script(target, chain)
         except base58.Base58Error as e:
-            raise BadTarget(f"bad address: {e}")
-    try:
-        script = bytes.fromhex(target)
-    except ValueError:
-        raise BadTarget("expected a bech32/bech32m or legacy address, "
-                        "or script hex")
-    if not script:
-        raise BadTarget("empty script")
-    return script
+            msg = str(e)
+            raise BadTarget(msg if msg.startswith("wrong network")
+                            else f"bad address: {msg}")
+    raise BadTarget("expected a bech32/bech32m or legacy address, "
+                    "or script hex")
 
 
 def make_handler(rpc: Rpc, max_utxos: int):
+    # The index's chain, asked once: it never changes under a running
+    # index (the daemon refuses a node on another chain).
+    chain: list[str] = []
+
+    def index_chain() -> str:
+        if not chain:
+            chain.append(rpc("getindexinfo").get("chain") or "main")
+        return chain[0]
+
+    def settled(script_hex: str) -> dict | None:
+        """The ledger's balances by outpoint, None on a birth-only index
+        (-5 there: no ledger half, which is not a zero)."""
+        try:
+            out = rpc("getorchidbalance", script_hex)
+        except RpcError as e:
+            if e.code == -5:
+                return None
+            raise
+        return {(u["txid"], u["vout"]): u["seeds"] for u in out["utxos"]}
 
     class Handler(BaseHTTPRequestHandler):
         protocol_version = "HTTP/1.1"
@@ -134,15 +165,21 @@ def make_handler(rpc: Rpc, max_utxos: int):
             self._send(200, info)
 
         def _address(self, target: str):
-            script = parse_target(target)
+            script = parse_target(target, index_chain())
             out = rpc("getlatent", script.hex())
             utxos = out.get("utxos", [])
+            balances = settled(script.hex())
+            if balances is not None:
+                for u in utxos:
+                    u["settled_seeds"] = balances.get((u["txid"], u["vout"]), 0)
             self._send(200, {
                 "target": target,
                 "script": script.hex(),
                 "height": out.get("valued_at_height"),
                 "chainwork": out.get("chainwork"),
                 "seeds": out.get("seeds"),
+                "settled_seeds": (None if balances is None
+                                  else sum(balances.values())),
                 "sats": sum(u["sats"] for u in utxos),
                 "latent_sats": sum(u["latent_sats"] for u in utxos),
                 "utxo_count": len(utxos),

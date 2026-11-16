@@ -7,6 +7,7 @@ from __future__ import annotations
 
 import unittest
 
+from claimstones.bitcoin import base58
 from claimstones.bitcoin.descriptors import (
     GAP_LIMIT, CheckInputError, parse_inputs, parse_line, parse_xpub, scan_branch,
 )
@@ -188,6 +189,17 @@ class DescriptorParseTests(unittest.TestCase):
         self.assertEqual(legacy.derive(0).script[:3], bytes([0x76, 0xA9, 0x14]))
         with self.assertRaises(CheckInputError):
             parse_line("tb1qw508d6qejxtdg4y5r3zarvary0c5xw7kxpjzsx")  # wrong net
+
+    def test_legacy_test_network_addresses(self):
+        p2pkh = base58.encode_check(bytes([0x6F]) + bytes(20))    # m.../n...
+        p2sh = base58.encode_check(bytes([0xC4]) + bytes(20))     # 2...
+        self.assertEqual(parse_line(p2pkh, network="signet")[0].derive(0)
+                         .script[:3], bytes([0x76, 0xA9, 0x14]))
+        self.assertEqual(parse_line(p2sh, network="signet")[0].derive(0)
+                         .script[:2], bytes([0xA9, 0x14]))
+        with self.assertRaises(CheckInputError) as ctx:
+            parse_line(p2pkh)                                      # on mainnet
+        self.assertIn("wrong network", str(ctx.exception))
 
     def test_network_pinning(self):
         with self.assertRaises(CheckInputError) as ctx:

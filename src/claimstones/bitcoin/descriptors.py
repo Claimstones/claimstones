@@ -471,9 +471,11 @@ def _address_script(addr: str, network: str | None, hrp: str) -> bytes:
         except bech32.Bech32Error as e:
             raise CheckInputError(f"bad address: {e}") from None
     try:
-        return base58.address_to_script(addr)
+        return base58.address_to_script(addr, network or "main")
     except base58.Base58Error as e:
-        raise CheckInputError(f"bad address: {e}") from None
+        msg = str(e)
+        raise CheckInputError(msg if msg.startswith("wrong network")
+                              else f"bad address: {msg}") from None
 
 
 def parse_line(line: str, network: str | None = "main") -> list[Branch]:
