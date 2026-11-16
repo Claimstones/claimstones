@@ -62,7 +62,8 @@ orchids already on the script (Spec 6 `getorchidbalance`: landed and
 received), also per row, and `null` on an index without a ledger half
 (not 0). The two are asked one after the other, so across a new block
 they can be one block apart. The frontend's wording contract is
-`wallet-policy.md` ("est. orchids to be landed", never "value").
+`wallet-policy.md` §Wording ("est. orchids to be landed"; amounts,
+never money).
 
 ## What it will not do
 

@@ -282,7 +282,9 @@ def print_report(report: CheckReport, out=STDOUT, network: str = "main",
                        else orchids(settled)))
     if report.total_seeds is not None and (settled is None
                                            or report.total_seeds):
-        totals.append(("total est. orchid amount",
+        # Balance beside "total orchids": the asterisk marks the estimate
+        totals.append(("unclaimed orchids" if settled is not None
+                       else "total est. orchid amount",
                        f"{orchids(report.total_seeds)}*"))
     # whole-number parts right-aligned, the decimals hanging
     whole = lambda v: len(v.split(".")[0]) if v[:1].isdigit() else 0

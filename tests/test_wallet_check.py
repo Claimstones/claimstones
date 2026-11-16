@@ -170,8 +170,19 @@ class ReportTests(unittest.TestCase):
         self.assertIn("total satoshis   8,724\n", text)
         self.assertIn("total orchids    3,101.09\n", text)       # whole parts aligned
         self.assertNotIn("total est.", text)                    # 0: left out
+        self.assertNotIn("unclaimed orchids", text)
         self.assertIn("8,394 sats  0 unclaimed   est. orchid amount 0.00*", text)
         self.assertIn("  330 sats  0 unclaimed", text)           # columns as wide as needed
+
+    def test_balance_names_the_estimate_unclaimed_orchids(self):
+        receive, _ = zpub_scripts()
+        rpc = FakeRpc({receive.derive(0).script.hex(): [utxo(1, 50_000)]})
+        out = io.StringIO()
+        print_report(run_check([BIP84_FIRST], rpc), out, settled=310_109)
+        text = out.getvalue()
+        self.assertRegex(text, r"\ntotal orchids +3,101\.09\n")
+        self.assertRegex(text, r"\nunclaimed orchids +50\.00\*\n")
+        self.assertNotIn("total est.", text)
 
     def test_index_block_and_its_age(self):
         now = 1_763_200_000
