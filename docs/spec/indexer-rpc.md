@@ -13,7 +13,7 @@ A wallet without its own Bitcoin node uses this API for its view — discovery, 
 - `POST /` with `{"method": "...", "params": [...], "id": any}`; the reply is `{"result": ..., "error": null, "id"}` or `{"result": null, "error": {"code", "message"}, "id"}`. Error messages name the call and the reason in plain words a wallet can show; no silent fallbacks.
 - **Auth**: on start the server writes `rpc.cookie` beside the database — `__cookie__:<64 hex>`, bitcoind's convention — and requires it as HTTP Basic credentials (`--no-auth` for localhost experiments). The cookie is rotated on every start.
 - **Port**: one digit off the node it serves beside, per network as Core does (decided 2026-11-12) — main **7332** (node 8332), testnet **17332** (18332), signet **37332** (38332), regtest **17443** (18443). The default is the mainnet port; the others are `--port`.
-- The host node (`--node-url` + its auth) is optional: without it, `getlatent` and `sendrawtransaction` answer with an error naming the missing piece and the pure index lookups still serve.
+- The host node (`--node-url` + its auth) is optional: without it, `getlatent`, `sendrawtransaction` and `getfeerate` answer with an error naming the missing piece and the pure index lookups still serve.
 - Seeds and sats travel as JSON numbers: a single land is bounded by `A_0` = 3e13 seeds and sats by 2.1e15, both inside JSON's exact-integer range (2^53). Chainwork is hex. txids are in display order (reversed), as everywhere in Core's RPC.
 
 ## Methods
@@ -57,6 +57,16 @@ Wording for display is the wallet's business (`wallet-policy.md` §Wording): "es
 ### `sendrawtransaction <hex>`
 
 Relay through the host node; the node's answer (txid or refusal) passes through. Error `-10` without a node, `-11` with the node's own message when it refuses.
+
+### `getfeerate [blocks]`
+
+A default fee rate (added 2026-11-16, for the land builder and any wallet): the median of the median (50th percentile) fee rates of the last `blocks` blocks (default 3, at most 10), from the node's `getblockstats`, and never below 1 sat/vB.
+
+```json
+{"fee_rate": 3, "height": 981234, "blocks": 3, "block_medians": [5, 1, 3]}
+```
+
+Backward-looking on purpose: it needs no mempool (the host node may run `blocksonly`) and no transaction index, only recent blocks, which a pruned node keeps. It lags a sudden fee rise; a land is then raised by CPFP, never RBF (`wallet-policy.md`). Error `-10` without a node, `-32602` for `blocks` outside 1..10.
 
 ### `help`
 

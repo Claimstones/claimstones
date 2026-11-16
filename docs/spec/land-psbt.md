@@ -24,7 +24,8 @@ indistinguishable from phishing; this one invites the check.
   promise stays whole: the edge forwards exactly `POST /v1/land` here
   and nothing else.
 - JSON in and out; errors as the gateway shapes them (`{"error": msg}`,
-  400 bad input / 405 not POST / 502 backend unavailable).
+  400 bad input / 404 no such path / 405 not POST / 413 body over 4 KB /
+  502 backend unavailable).
 - No auth: boundedness and the edge's rate limits are the protection,
   and building a PSBT mutates nothing — the chain only changes if the
   user signs and broadcasts.
@@ -39,23 +40,36 @@ indistinguishable from phishing; this one invites the check.
 
 One funding address per transaction (this fixes, for the service, the
 multi-address question `wallet-policy.md` leaves open — the return
-output is then always unambiguous). `fee_rate` in sat/vB is optional;
-default is the node's estimate. The fee must respect `verifyCollect`'s
-bound: at most a fifth of the input sats.
+output is then always unambiguous). `fee_rate` in sat/vB is optional
+(1..1000); the default is Spec 6 `getfeerate`, the median of the median
+fee rates of the last 3 blocks, at least 1 sat/vB (decided 2026-11-16:
+it needs neither a mempool — the mainnet host node runs `blocksonly` —
+nor a transaction index). The fee must respect `verifyCollect`'s bound:
+at most a fifth of the input sats.
 
 ## Answer
 
 ```json
 {"psbt": "<base64>",
  "summary": {"inputs": 3, "input_sats": 150000, "carrier_sats": 330,
-             "return_sats": 148870, "fee_sats": 800,
-             "seeds": 101, "height": 981234}}
+             "return_sats": 148870, "fee_sats": 800, "fee_rate": 4,
+             "seeds": 101, "height": 981234,
+             "utxo_count": 3, "capped": false},
+ "as_of": 1794834651}
 ```
 
 The transaction is exactly the claim-and-collect template: output 0 the
 LAND-only envelope, output 1 `orchids_to` with `carrier_sats`, output 2
 the funding address with everything else. Per input `witness_utxo`
-(plus `non_witness_utxo` when not taproot). The `summary` is what
+only (decided 2026-11-16). The service cannot supply `non_witness_utxo`:
+its nodes keep no transaction index and the mainnet one is pruned, so
+an older previous transaction is simply not there. The signing wallet
+has them — they are its own coins — and adds them where its signer
+wants them (hardware signers insist for segwit v0 since the 2020
+fee-attack fix; Core's `walletprocesspsbt` fills them in, Sparrow is
+expected to: confirmed or refuted by the signing matrix, test round
+4). Taproot needs nothing more, its signature commits to every input
+amount. `seeds` counts the inputs actually spent. The `summary` is what
 `verifyCollect` checks the PSBT against, and what the frontend must
 show before signing, in the mandated wording: the signer pays the miner
 fee plus 330 sats, nothing more. Fee guidance is inherited from
@@ -69,7 +83,14 @@ the envelope.
   An envelope below activation is ignored by every indexer; building
   one would waste the signer's sats.
 - More UTXOs on the address than `--max-inputs` (default 50): build
-  from the largest `--max-inputs` and say so in the summary.
+  from the largest `--max-inputs` and say so in the summary
+  (`utxo_count` above `inputs`, `capped`).
+- A legacy funding address (`1…`, `m…`, `n…`): its signer always needs
+  the previous transactions, which the service cannot supply (above).
+  The message says to move the bitcoin to a segwit or taproot address
+  first, or to use a Claimstones wallet.
+- An address of another network than the index's, script hex instead
+  of an address, or the same address on both sides.
 - Inputs too small to cover carrier + fee with a non-dust return:
   refuse with the arithmetic in the message.
 

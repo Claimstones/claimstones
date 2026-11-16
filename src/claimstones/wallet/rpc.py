@@ -107,3 +107,6 @@ class IndexerRpc:
 
     def sendrawtransaction(self, hexstring: str) -> str:
         return self.call("sendrawtransaction", hexstring)
+
+    def getfeerate(self, blocks: int = 3) -> dict:
+        return self.call("getfeerate", blocks)

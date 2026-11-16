@@ -15,6 +15,7 @@ committed block and never block the writer) and answers lookups:
     getlatent <addr|script|outpoint> runs valued in seeds at the node tip
     getorchidbalance <addr|script|outpoint>  settled seeds, the ledger half
     sendrawtransaction <hex>         relay through the node
+    getfeerate [blocks]              median fee rate of the last blocks
     help
 
 Everything here is a view. The server holds no keys, builds no
@@ -318,6 +319,34 @@ class IndexQueries:
             raise RpcFault(INVALID_PARAMS, "expected raw transaction hex")
         return self._node_call_raw("sendrawtransaction", hexstring)
 
+    # --- fee guidance ---
+
+    FEE_BLOCKS_MAX = 10
+
+    def getfeerate(self, blocks: int = 3) -> dict:
+        """A default fee rate from what the last `blocks` blocks paid: the
+        median of their median (50th percentile) fee rates, at least 1
+        sat/vB. Backward-looking on purpose: it needs neither a mempool
+        (the host node may run blocksonly) nor a transaction index, only
+        the recent blocks a pruned node keeps (indexer-rpc.md)."""
+        self._require_node("getfeerate")
+        if (not isinstance(blocks, int) or isinstance(blocks, bool)
+                or not 1 <= blocks <= self.FEE_BLOCKS_MAX):
+            raise RpcFault(INVALID_PARAMS,
+                           f"blocks must be 1..{self.FEE_BLOCKS_MAX}")
+        tip = self._node_call_raw("getblockchaininfo")["blocks"]
+        medians = []
+        for h in range(tip, max(tip - blocks, -1), -1):
+            stats = self._node_call_raw("getblockstats", h,
+                                        ["feerate_percentiles"])
+            medians.append(stats["feerate_percentiles"][2])
+        ordered = sorted(medians)
+        mid = len(ordered) // 2
+        median = (ordered[mid] if len(ordered) % 2
+                  else (ordered[mid - 1] + ordered[mid]) / 2)
+        return {"fee_rate": max(1, median), "height": tip,
+                "blocks": len(medians), "block_medians": medians}
+
     # --- discovery of the surface itself ---
 
     def help(self) -> list[str]:
@@ -328,11 +357,13 @@ class IndexQueries:
             "getlatent <address|script_hex|{txid,vout}>",
             "getorchidbalance <address|script_hex|{txid,vout}>",
             "sendrawtransaction <hex>",
+            "getfeerate [blocks]",
             "help",
         ]
 
     METHODS = ("getindexinfo", "getbirthruns", "getaddressutxos",
-               "getlatent", "getorchidbalance", "sendrawtransaction", "help")
+               "getlatent", "getorchidbalance", "sendrawtransaction",
+               "getfeerate", "help")
 
     def dispatch(self, method: str, params: list):
         if method not in self.METHODS:

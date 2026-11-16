@@ -29,6 +29,7 @@ CHAINWORK_HEX = "%064x" % (1 << 40)
 GENESIS_BITS = "1d00ffff"
 TIP = 200
 TIP_TIME = 1_763_100_000
+BLOCK_MEDIANS = {TIP: 5, TIP - 1: 1, TIP - 2: 3}   # older blocks: empty, 0
 
 
 def fake_node(method, *params):
@@ -40,6 +41,11 @@ def fake_node(method, *params):
         return {"bits": GENESIS_BITS, "time": TIP_TIME}
     if method == "sendrawtransaction":
         return "feed" * 16
+    if method == "getblockstats":
+        h, fields = params
+        assert fields == ["feerate_percentiles"]
+        median = BLOCK_MEDIANS.get(h, 0)
+        return {"feerate_percentiles": [0, 0, median, median + 4, 20]}
     raise AssertionError(f"unexpected node call {method}")
 
 
@@ -185,6 +191,23 @@ def test_getlatent_single_outpoint(served):
 
 def test_sendrawtransaction_passthrough(served):
     assert rpc(served, "sendrawtransaction", "beef")["result"] == "feed" * 16
+
+
+def test_getfeerate_median_of_the_last_blocks(served):
+    out = rpc(served, "getfeerate")["result"]
+    assert out == {"fee_rate": 3, "height": TIP, "blocks": 3,
+                   "block_medians": [5, 1, 3]}
+    assert rpc(served, "getfeerate", 1)["result"]["fee_rate"] == 5
+    assert rpc(served, "getfeerate", 2)["result"]["fee_rate"] == 3   # (5+1)/2
+
+
+def test_getfeerate_floor_and_bounds(served):
+    # TIP-3 .. TIP-9 are empty blocks (median 0): the floor is 1 sat/vB
+    out = rpc(served, "getfeerate", 10)["result"]
+    assert out["block_medians"][3:] == [0] * 7
+    assert out["fee_rate"] == 1
+    for bad in (0, 11, "3", True):
+        assert rpc(served, "getfeerate", bad)["error"]["code"] == -32602
 
 
 def test_auth_required(served):
