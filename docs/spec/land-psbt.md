@@ -54,7 +54,8 @@ at most a fifth of the input sats.
  "summary": {"inputs": 3, "input_sats": 150000, "carrier_sats": 330,
              "return_sats": 148870, "fee_sats": 800, "fee_rate": 4,
              "seeds": 101, "height": 981234,
-             "utxo_count": 3, "capped": false},
+             "utxo_count": 3, "capped": false,
+             "orchids_to_coins": 0, "orchids_to_latent_sats": 0},
  "as_of": 1794834651}
 ```
 
@@ -69,7 +70,13 @@ wants them (hardware signers insist for segwit v0 since the 2020
 fee-attack fix; Core's `walletprocesspsbt` fills them in, Sparrow is
 expected to: confirmed or refuted by the signing matrix, test round
 4). Taproot needs nothing more, its signature commits to every input
-amount. `seeds` counts the inputs actually spent. The `summary` is what
+amount. `seeds` counts the inputs actually spent. `orchids_to_coins` and
+`orchids_to_latent_sats` are what the orchid address already holds:
+unclaimed bitcoin there means a wallet that spends from it, or an
+address that is not the claimer's (the signet trial sent a claim to
+a faucet's address, copied from its payout, and the faucet swept the
+carrier into its next payout). The frontend warns; the builder does
+not refuse. The `summary` is what
 `verifyCollect` checks the PSBT against, and what the frontend must
 show before signing, in the mandated wording: the signer pays the miner
 fee plus 330 sats, nothing more. Fee guidance is inherited from
