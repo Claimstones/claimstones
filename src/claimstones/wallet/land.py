@@ -51,9 +51,12 @@ _DUST = {"tr": 330, "wpkh": 294, "sh(wpkh)": 540, "pkh": 546}
 
 # Worst-case signature material per input type, for fee estimation:
 # (scriptSig bytes, witness stack items). 72 covers a high-S-free DER
-# signature with sighash byte; taproot key-path is one 64-byte signature.
+# signature with sighash byte; taproot key-path is one 64-byte signature,
+# sized at 65 because a signer that picks SIGHASH_ALL over the default
+# appends the sighash byte (seen with Core's walletprocesspsbt ... ALL:
+# 169 vB against 168, under the asked fee rate). Costs at most 1 sat/input.
 _DUMMY = {
-    "tr": (b"", [bytes(64)]),
+    "tr": (b"", [bytes(65)]),
     "wpkh": (b"", [bytes(72), bytes(33)]),
     "sh(wpkh)": (bytes(23), [bytes(72), bytes(33)]),
     "pkh": (bytes(107), []),
