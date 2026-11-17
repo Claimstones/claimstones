@@ -16,7 +16,8 @@ something (land.py says why).
     answer    {"psbt": "<base64>",
                "summary": {"inputs", "input_sats", "carrier_sats",
                            "return_sats", "fee_sats", "fee_rate", "seeds",
-                           "height", "utxo_count", "capped"},
+                           "height", "utxo_count", "capped",
+                           "orchids_to_coins", "orchids_to_latent_sats"},
                "as_of"}
 
 What the builder refuses, beyond what build_collect refuses itself:
@@ -132,6 +133,11 @@ def build(rpc: IndexerRpc, request: dict, max_inputs: int = 50,
                                 chain, max_inputs)
         except TemplateError as e:
             raise Refused(str(e)) from None
+        # What the orchid address already holds, for the page's warning:
+        # unclaimed bitcoin there means a wallet that spends from it, or
+        # an address that is not the claimer's at all (a faucet's, in
+        # the signet trial). A warning, never a refusal.
+        held = rpc.getaddressutxos(orchids.hex())
     except WalletRpcError as e:
         if e.code in (NO_NODE, NODE_ERROR):
             raise Unavailable(e.message) from None
@@ -154,6 +160,9 @@ def build(rpc: IndexerRpc, request: dict, max_inputs: int = 50,
             "height": plan.valued_at_height,
             "utxo_count": plan.utxo_count,
             "capped": plan.utxo_count > len(s.inputs),
+            "orchids_to_coins": len(held),
+            "orchids_to_latent_sats": sum(u.get("latent_sats", 0)
+                                          for u in held),
         },
         "as_of": int(time.time()),
     }

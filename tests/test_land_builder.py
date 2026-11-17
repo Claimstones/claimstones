@@ -94,6 +94,8 @@ class BuildTests(unittest.TestCase):
                          s["carrier_sats"] + s["return_sats"] + s["fee_sats"])
         self.assertEqual(s["seeds"], 6_000)
         self.assertEqual((s["utxo_count"], s["capped"]), (2, False))
+        self.assertEqual((s["orchids_to_coins"],
+                          s["orchids_to_latent_sats"]), (0, 0))
         psbt = Psbt.from_base64(out["psbt"])
         outpoints = tuple(f"{i.prev_txid[::-1].hex()}:{i.prev_vout}"
                           for i in psbt.tx.inputs)
@@ -104,6 +106,14 @@ class BuildTests(unittest.TestCase):
         for inp in psbt.inputs:                     # short form only
             self.assertIsNotNone(inp.witness_utxo)
             self.assertIsNone(inp.non_witness_utxo)
+
+    def test_reports_what_the_orchid_address_holds(self):
+        rpc = rpc_with(utxo(1, 50_000))
+        rpc.coins[KEY.script.hex()] = [utxo(7, 330, latent=0),
+                                       utxo(8, 90_000)]
+        s = build(rpc, req())["summary"]
+        self.assertEqual((s["orchids_to_coins"],
+                          s["orchids_to_latent_sats"]), (2, 90_000))
 
     def test_given_fee_rate_is_used(self):
         rpc = rpc_with(utxo(1, 50_000))
