@@ -202,9 +202,12 @@ def make_handler(rpc: IndexerRpc, max_inputs: int, fee_blocks: int):
             except Refused as e:
                 self._send(400, {"error": str(e)})
             except Unavailable as e:
-                self._send(502, {"error": f"index backend unavailable: {e}"})
+                # details (internal URL, OS error) to our log only
+                print(f"502 {self.path}: {e}", flush=True)
+                self._send(502, {"error": "index backend unavailable"})
             except Exception as e:      # a bug: say so, keep serving
-                self._send(500, {"error": f"internal error: {e}"})
+                print(f"500 {self.path}: {e!r}", flush=True)
+                self._send(500, {"error": "internal error"})
 
         def do_GET(self):          # noqa: N802
             self._send(405, {"error": "POST only"})

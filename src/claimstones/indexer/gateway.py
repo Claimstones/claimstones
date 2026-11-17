@@ -156,8 +156,10 @@ def make_handler(rpc: Rpc, max_utxos: int):
                 # and useful (e.g. a script it will not index)
                 self._send(400, {"error": str(e)})
             except Exception as e:
-                # backend away (connection refused, cookie waiting, ...)
-                self._send(502, {"error": f"index backend unavailable: {e}"})
+                # backend away (connection refused, cookie waiting, ...).
+                # The details (internal URL, OS error) go to our log only.
+                print(f"502 {self.path}: {e!r}", flush=True)
+                self._send(502, {"error": "index backend unavailable"})
 
         def _info(self):
             info = rpc("getindexinfo")
