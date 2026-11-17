@@ -191,6 +191,24 @@ class HttpTests(unittest.TestCase):
         self.assertEqual(self.call(method="GET")[0], 405)
         self.assertEqual(self.call(body=b"x" * (MAX_BODY + 1))[0], 413)
 
+    def test_backend_away_says_no_more(self):
+        srv = ThreadingHTTPServer(
+            ("127.0.0.1", 0),
+            make_handler(rpc_with(utxo(1, 50_000), unreachable=True), 50, 3))
+        threading.Thread(target=srv.serve_forever, daemon=True).start()
+        try:
+            r = urllib.request.Request(
+                f"http://127.0.0.1:{srv.server_address[1]}/v1/land",
+                data=json.dumps(req()).encode(), method="POST")
+            with self.assertRaises(urllib.error.HTTPError) as cm:
+                urllib.request.urlopen(r, timeout=10)
+            self.assertEqual(cm.exception.code, 502)
+            self.assertEqual(json.loads(cm.exception.read()),
+                             {"error": "index backend unavailable"})
+        finally:
+            srv.shutdown()
+            srv.server_close()
+
 
 if __name__ == "__main__":
     unittest.main()

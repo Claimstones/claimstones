@@ -266,6 +266,6 @@ def test_backend_away_is_502(tmp_path):
     try:
         status, body, _ = get(f"http://127.0.0.1:{srv.server_port}/v1/info")
         assert status == 502
-        assert "unavailable" in body["error"]
+        assert body["error"] == "index backend unavailable"   # no internals
     finally:
         srv.shutdown()
