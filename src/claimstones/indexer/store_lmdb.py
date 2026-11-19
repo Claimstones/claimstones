@@ -134,8 +134,11 @@ class LmdbBirthStore:
         self.undo_from = undo_from
         self.commit_every = commit_every
         self.readonly = readonly
+        # readahead off: lookups are random in a database far larger than
+        # RAM, and the kernel's default readahead turns each 4 KB page
+        # into a ~100 KB read (measured 2026-11-19: 26.5 -> 10.9 s/block)
         self.env = lmdb.open(path, map_size=map_mb << 20, subdir=True,
-                             max_dbs=8, readonly=readonly)
+                             max_dbs=8, readonly=readonly, readahead=False)
         # no explicit txn: a handle opened in a read-only txn dies with it
         # when the txn is aborted on close (MDB_CREATE is refused there too)
         create = not readonly
