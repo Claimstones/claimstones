@@ -8,6 +8,12 @@ a land, W(h) from every header, and balances from the first envelope at
 or above ACTIVATION_HEIGHT. An index resumed above genesis gets its work
 table filled from the node's headers at startup (indexer/work.py).
 
+The database does not have to come from a build of your own: the
+published land-free snapshot (height 975 433, a download link and its
+hashes in docs/birth-index-check.md §Starting from the published
+snapshot) can be given as --db after checking it against your node; the
+daemon then replays the blocks since.
+
 One cycle (`ChainFollower.sync_once`):
 
   1. Reorg check. Every block the daemon connects records its hash under

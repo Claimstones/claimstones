@@ -62,6 +62,8 @@ claimstones-cli -rpccookie <path>/rpc.cookie getindexinfo
 claimstones-cli -rpccookie <path>/rpc.cookie getlatent bc1p...
 ```
 
+Instead of building from genesis, an indexer can start from the published land-free snapshot at height 975 433 (~143 GiB, https://claimstones.org/snapshot/birth-landfree-975433/data.mdb) and let the tip daemon replay the blocks since; `docs/birth-index-check.md` §Starting from the published snapshot gives its hashes and how to check it against your own node first.
+
 A built index is trusted by verification, not provenance: `docs/birth-index-check.md` states the identity against the node's `gettxoutsetinfo muhash` that any independently built index must satisfy — and a wallet that runs its own node needs no index at all, since the backward walker computes the identical valuation from chain data alone.
 
 ## Status and boundaries

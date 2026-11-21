@@ -233,3 +233,32 @@ land-free build.
    write to the artifact.
 6. **Restart the daemon**: delete the stop file and start it again; it
    resumes from `meta.height`.
+
+## Starting from the published snapshot
+
+Building from genesis is an overnight run (`spec/fastbuild.md`). The
+land-free snapshot is published so that an indexer can instead start from
+it and replay only the blocks since. It is trusted the same way as a build
+of your own — by checking it against your node, not by where it came from.
+
+| | |
+|---|---|
+| Download | https://claimstones.org/snapshot/birth-landfree-975433/data.mdb (152 964 608 000 bytes, ~143 GiB) |
+| File sha256 | `6e6031e8bd5d3f4964a349386fb582e73717216b9185937acdfddbab3809d018` |
+| Height | 975 433, schema 3, chain main, land-free (below any activation height) |
+| Rows | 451 455 735 (= `meta.utxos`) |
+| Row digest | `056edc32c8d8c7bd8745a89312ce6d1aca1d59801094dceb82eb4a0c2f844a09` (`snapshot_digest`) |
+| Sat total | 2 011 050 111 113 291 = `gettxoutsetinfo muhash 975433` `total_amount` |
+
+1. Download the file into an empty directory, e.g. `birth.lmdb/data.mdb`,
+   and check its sha256 (`sha256sum`, or `certutil -hashfile <file> SHA256`
+   on Windows). That proves the download, not the content.
+2. Prove the content against your own node: the identity above at 975 433
+   (your node needs `coinstatsindex=1`; a pruned node must still hold the
+   blocks since 975 433 to catch up), and
+   `python -m claimstones.indexer.snapshot_digest birth.lmdb` for the row
+   digest. Keep a copy of the untouched file if you want to repeat this
+   later — the daemon writes to the one it runs on.
+3. Start the tip daemon on it (`README.md` §Running it). It fills the work
+   table from the node's headers at startup and replays every block from
+   975 434 to the tip.
