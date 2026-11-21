@@ -270,6 +270,32 @@ class LmdbBirthStore:
             self.txn.commit()
             self.txn = None
             self.in_tx = False
+        if not self.readonly:
+            self.check_readers()
+
+    def check_readers(self) -> dict[str, int]:
+        """Free the reader slots of dead processes, then measure the rest.
+
+        A process that dies with a read transaction open (a killed
+        gateway, a reboot without a clean close) leaves its slot in the
+        lock file, and that slot pins its snapshot: LMDB may not reuse
+        any page freed after it, so every commit grows the file instead.
+        Found 2026-11-21 on the MS-A2: two dead slots, ~200 MB of growth
+        a block; reader_check() stopped it at once. The writer clears them
+        on every commit. A live reader that holds an old snapshot cannot
+        be cleared; `reader_lag` (commits since the oldest open snapshot)
+        shows it, for a health check to alarm on."""
+        cleared = self.env.reader_check()
+        last = self.env.info()["last_txnid"]
+        oldest = None
+        for line in self.env.readers().splitlines()[1:]:
+            parts = line.split()
+            if len(parts) >= 3 and parts[-1].isdigit():
+                t = int(parts[-1])
+                oldest = t if oldest is None else min(oldest, t)
+        self.readers_cleared = getattr(self, "readers_cleared", 0) + cleared
+        self.reader_lag = 0 if oldest is None else max(0, last - oldest)
+        return {"cleared": cleared, "reader_lag": self.reader_lag}
 
     def rollback(self) -> None:
         """Drop everything since the last commit and reload the counters."""

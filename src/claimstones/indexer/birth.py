@@ -754,6 +754,9 @@ def write_status(path: str, height: int, store, t0: float) -> None:
            "runs": s["runs"], "run_bytes": s["bytes"], "lands": s["lands"],
            "hot": len(store.hot), "db_bytes": store.file_size(),
            "started": t0, "t": time.time()}
+    if hasattr(store, "reader_lag"):          # LMDB writer, after a commit
+        doc["reader_lag"] = store.reader_lag
+        doc["readers_cleared"] = store.readers_cleared
     tmp = path + ".tmp"
     try:
         with open(tmp, "w", encoding="utf-8") as f:

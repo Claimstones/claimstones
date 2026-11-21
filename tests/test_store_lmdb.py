@@ -211,3 +211,54 @@ def test_readonly_reader_cannot_write(tmp_path):
             reader.set_meta("height", "2")
     finally:
         reader.env.close()
+
+
+READER = """
+import os, sys, lmdb
+env = lmdb.open(sys.argv[1], readonly=True, max_dbs=8, map_size=64 << 20)
+txn = env.begin()
+txn.get(b"x")
+print("open", flush=True)
+if sys.argv[2] == "die":
+    os._exit(0)          # no abort, no close: the slot stays behind
+sys.stdin.readline()     # hold the snapshot until told to go
+"""
+
+
+def _commits(store, n):
+    for i in range(n):
+        store.begin()
+        store.set_meta("tick", str(i))
+        store.commit()
+
+
+def test_writer_clears_dead_readers_and_measures_live_ones(tmp_path):
+    """2026-11-21: dead reader slots pinned an old snapshot on the MS-A2
+    and the file grew ~200 MB a block. Every commit now frees them."""
+    import subprocess
+    import sys
+    db = str(tmp_path / "db")
+    store = LmdbBirthStore(db, map_mb=64)
+    try:
+        _commits(store, 1)
+        dead = subprocess.run([sys.executable, "-c", READER, db, "die"],
+                              capture_output=True, text=True, timeout=60)
+        assert dead.stdout.strip() == "open"
+        _commits(store, 1)
+        assert store.readers_cleared == 1
+        assert store.reader_lag == 0
+
+        live = subprocess.Popen([sys.executable, "-c", READER, db, "hold"],
+                                stdin=subprocess.PIPE, stdout=subprocess.PIPE,
+                                text=True)
+        try:
+            assert live.stdout.readline().strip() == "open"
+            _commits(store, 5)
+            assert store.reader_lag >= 5      # alive: measured, not cleared
+            assert store.readers_cleared == 1
+        finally:
+            live.communicate("go\n", timeout=60)
+        _commits(store, 1)
+        assert store.reader_lag == 0
+    finally:
+        store.close()
