@@ -45,13 +45,16 @@ MAGIC = bytes([OP_RETURN, OP_PUSHNUM_15])
 # is a constant, read by both indexers (indexer/birth.py, indexer/replay.py)
 # and advertised to wallets by the server (/hello).
 #
-# None is this code's spelling of the spec's [decide]: undecided, so no
-# envelope counts at any height. Consumers must test for None rather than
-# compare against it. A 0 default would have meant the opposite -- active
-# since genesis -- which is exactly why the undecided case is not spelled 0.
+# Decided 2026-11-23: bitcoin mainnet activates at block 980 000. An envelope
+# in a block below it does not count, on any indexer, ever.
 #
-#     Before this is given a number, take a land-free snapshot of the
-#     birth index: docs/birth-index-check.md, "The land-free snapshot".
+# The type stays "int | None" for the consumers: None was this code's spelling
+# of the undecided constant (no envelope counts at any height) and the gates
+# still test for None rather than compare against it, since 0 means the
+# opposite -- active since genesis.
+#
+#     The land-free snapshot of the birth index was taken below this
+#     height (975 433): docs/birth-index-check.md, "The land-free snapshot".
 #
 # The birth index marks landed sats with the PLAIN run height, and PLAIN is not
 # an annotation on the landed output: BirthIndexer._place cuts the input run
@@ -63,14 +66,14 @@ MAGIC = bytes([OP_RETURN, OP_PUSHNUM_15])
 # whereas a copy stopped cleanly just below activation turns that into a replay
 # of only the blocks since. The window for taking it closes the moment the
 # chain reaches the height chosen here.
-ACTIVATION_HEIGHT: int | None = None
+ACTIVATION_HEIGHT: int | None = 980_000
 
 
 def activation_height(chain: str = "main") -> int | None:
     """The activation height for a chain, as the node names it
     (getblockchaininfo "chain": main/test/signet/regtest).
 
-    Mainnet is ACTIVATION_HEIGHT above, the one [decide]. Test chains
+    Mainnet is ACTIVATION_HEIGHT above (980 000). Test chains
     are active from height 1 (decided 2026-11-11): a test network
     exists to exercise the protocol, and a land that cannot count tests
     nothing. Height 1, not 0 -- a genesis coinbase is unspendable on

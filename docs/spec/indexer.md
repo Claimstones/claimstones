@@ -73,9 +73,9 @@ output, so placing it last is unobservable. Per transaction:
    its pot is 0.)
 2. **Read the envelope.** If `height ≥ ACTIVATION_HEIGHT` and an
    output script begins `6a 5f`, `decipher` yields an `Envelope`, a
-   `Cenotaph`, or nothing (`envelope.md`). Below activation, or with
-   `ACTIVATION_HEIGHT = None`, there is no envelope and steps 3 and 5
-   reduce to the default rule.
+   `Cenotaph`, or nothing (`envelope.md`). Below activation (980 000
+   on bitcoin mainnet, `constants.md`) there is no envelope and steps 3
+   and 5 reduce to the default rule.
 3. **Land.** If the artifact carries LAND — an `Envelope` or a
    `Cenotaph` alike — compute `amount` over the input stream at `W(c)`
    exactly as `land.md` §Valuation sequence (one floor, `c` this

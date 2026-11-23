@@ -45,7 +45,7 @@ class FusedCase(unittest.TestCase):
         self._stores = []
         self.store = self.open("db")
         self.ix = BirthIndexer(self.store)
-        self.ix.activation_height = 0        # the constant ships undecided
+        self.ix.activation_height = 0        # these blocks sit far below 980 000
 
     def tearDown(self):
         for s in self._stores:

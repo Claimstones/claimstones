@@ -250,7 +250,7 @@ class IndexerTests(IndexerCase):
             self.block(0, [coinbase(1, 0), tx(2, inputs=[(tid(99), 0)], outputs=[(1, None)])])
 
     def test_land_marks_outputs_plain(self):
-        self.ix.activation_height = 0        # the constant ships undecided
+        self.ix.activation_height = 0        # these blocks sit far below 980 000
         self.block(0, [coinbase(1, 0)])
         land = tx(2, inputs=[(tid(1), 0)], outputs=[(S - 1000, None), (0, land_script())])
         self.block(1, [coinbase(3, 1, claim=S + 1000), land])
@@ -263,11 +263,12 @@ class IndexerTests(IndexerCase):
         self.assertEqual(self.runs(4, 0), [(PLAIN, S - 2000)])
 
     def test_undecided_activation_lands_nothing(self):
-        # ACTIVATION_HEIGHT is None until it is decided, and while it is the
-        # index must be a pure function of the chain: no envelope counts at
-        # any height, so no run is ever marked PLAIN. This is what the
-        # land-free snapshot (docs/birth-index-check.md) depends on.
-        self.assertIsNone(self.ix.activation_height)
+        # With no activation height (None, the constant's value until it
+        # was decided) the index must be a pure function of the chain: no
+        # envelope counts at any height, so no run is ever marked PLAIN.
+        # This is what the land-free snapshot (docs/birth-index-check.md)
+        # depended on.
+        self.ix.activation_height = None
         self.block(0, [coinbase(1, 0)])
         land = tx(2, inputs=[(tid(1), 0)], outputs=[(S, None), (0, land_script())])
         self.block(1, [coinbase(3, 1), land])

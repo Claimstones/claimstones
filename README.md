@@ -10,7 +10,7 @@ Release 1 is one token (**orchids**, 100 seeds each) on one garden (bitcoin). Va
 
 The envelope reuses proven runes machinery — OP_RETURN payload, LEB128 integers, tags, edicts, pointers, cenotaph failure handling — under its own magic (`OP_RETURN OP_PUSHNUM_15`, disjoint from runes' `OP_PUSHNUM_13`), so the two protocols can never be mistaken for one another. Claimstones does not etch, premine, or mint runes.
 
-State is reconstructed deterministically from public chain data by anyone: the indexer in this repository replays the chain from genesis and arrives at the same balances on every machine. `ACTIVATION_HEIGHT` is not yet set (`protocol/codec.py` holds `None`); until it is, no land counts and everything is testing.
+State is reconstructed deterministically from public chain data by anyone: the indexer in this repository replays the chain from genesis and arrives at the same balances on every machine. Bitcoin mainnet activates at block **980 000** (`ACTIVATION_HEIGHT` in `protocol/codec.py`, expected around 12 December 2026); no land in an earlier block counts, and everything before it was testing.
 
 ## Reading order
 
@@ -68,7 +68,7 @@ A built index is trusted by verification, not provenance: `docs/birth-index-chec
 
 ## Status and boundaries
 
-Draft specifications, a working indexer, and consensus code with test vectors. No token exists yet: `ACTIVATION_HEIGHT` is unset, nothing is deployed, and estimated production cost is a cost, not a market valuation. Contributions should keep the protocol auditable from public chain data, the wallet self-custodial, and every constant decided in the open.
+Draft specifications, a working indexer, and consensus code with test vectors. No orchid exists before bitcoin block 980 000, the activation height, and estimated production cost is a cost, not a market valuation. Contributions should keep the protocol auditable from public chain data, the wallet self-custodial, and every constant decided in the open.
 
 ## License
 

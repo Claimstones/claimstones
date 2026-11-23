@@ -423,5 +423,21 @@ class BuilderTests(unittest.TestCase):
         self.assertEqual(decipher(tx), Envelope(edicts=[orchid_edict(250, 1)], pointer=2, land=True))
 
 
+class ActivationTests(unittest.TestCase):
+    def test_mainnet_activates_at_980_000(self):
+        # Consensus (docs/spec/constants.md, decided 2026-11-23). A change
+        # here is a different protocol, not a tweak.
+        from claimstones.protocol.codec import (ACTIVATION_HEIGHT,
+                                                activation_height)
+        self.assertEqual(ACTIVATION_HEIGHT, 980_000)
+        self.assertEqual(activation_height("main"), 980_000)
+        self.assertEqual(activation_height("mainnet"), 980_000)
+
+    def test_test_chains_are_active_from_height_1(self):
+        from claimstones.protocol.codec import activation_height
+        for chain in ("test", "testnet4", "signet", "regtest"):
+            self.assertEqual(activation_height(chain), 1)
+
+
 if __name__ == "__main__":
     unittest.main()

@@ -7,10 +7,10 @@ wallet signs is built and checked locally. It is written against
 `docs/spec/wallet-policy.md`; this guide is the same material in plain
 words, for someone who wants to use the wallet rather than build one.
 
-**Nothing is live yet.** `ACTIVATION_HEIGHT` is not set, so no land
-counts on any network and everything is testing. Do not move bitcoin
-anywhere expecting tokens until the activation height is a public
-commit and has passed.
+**Bitcoin mainnet starts at block 980 000** (the activation height,
+expected around 12 December 2026). No land in an earlier block counts,
+so do not claim on mainnet before that block has passed. The test
+networks are active already.
 
 ## Starting it
 

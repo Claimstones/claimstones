@@ -91,7 +91,7 @@ class ReplayCase(unittest.TestCase):
         self.store = OrchidStore(":memory:")
         self.valuer = FakeValuer(self.store)
         self.indexer = OrchidIndexer(self.store, self.valuer)
-        self.indexer.activation_height = 0   # the constant ships undecided
+        self.indexer.activation_height = 0   # these blocks sit far below 980 000
         self.height = 100
 
     def run_block(self, *txs: Tx, coinbase: Tx | None = None) -> None:
@@ -170,8 +170,8 @@ class LandTests(ReplayCase):
         self.assertEqual(self.valuer.calls, [])
 
     def test_undecided_activation_lands_nothing(self):
-        # ACTIVATION_HEIGHT is None until it is decided (protocol/codec.py),
-        # and while it is, no envelope counts at any height. The gate is a
+        # With no activation height (None, the constant's value until it was
+        # decided), no envelope counts at any height. The gate is a
         # test for None, never a comparison: 0 means active since genesis.
         self.indexer.activation_height = None
         self.valuer.work_of[(tid(90), 0)] = work(10)

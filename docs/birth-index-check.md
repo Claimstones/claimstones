@@ -161,17 +161,17 @@ consensus state (`spec/indexer.md`).
 
 ## The land-free snapshot
 
-`ACTIVATION_HEIGHT` is still `[decide]` (`spec/constants.md`), and in the code
-it is `ACTIVATION_HEIGHT = None` in `protocol/codec.py` — one definition, read
-by both indexers and reported by `getindexinfo` as `null`
+`ACTIVATION_HEIGHT` is 980 000 on bitcoin mainnet (`spec/constants.md`,
+decided 2026-11-23): `ACTIVATION_HEIGHT = 980_000` in `protocol/codec.py` —
+one definition, read by both indexers and reported by `getindexinfo`
 (`spec/indexer-rpc.md`), and a constant rather than a command-line option,
 because a per-run value would defeat the only thing the constant exists for.
-While it is `None`, `decipher` is never called and no run is ever marked
+Below that height `decipher` is never called and no run is ever marked
 `PLAIN`, so **the index is a pure function of the Bitcoin chain**. Two
 consequences are worth having: a content hash over its canonical rows means
 something, and somebody else's rebuild is a genuine independent witness.
 
-Giving the constant a number ends that permanently. `PLAIN` is not an
+The first land at or above that height ends this permanently. `PLAIN` is not an
 annotation on the landed output: the indexer cuts the input run stream
 positionally across the outputs, so a `PLAIN` run enters the stream of every
 later spend and travels forward with the sats
