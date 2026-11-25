@@ -7,8 +7,12 @@ wallet signs is built and checked locally. It is written against
 `docs/spec/wallet-policy.md`; this guide is the same material in plain
 words, for someone who wants to use the wallet rather than build one.
 
+A claim is an ordinary Bitcoin transaction carrying a claimstone, a
+marker in the runestone format; coins are tracked by the ordinals
+rules for numbering sats.
+
 **Bitcoin mainnet starts at block 980 000** (the activation height,
-expected around 12 December 2026). No land in an earlier block counts,
+expected around 12 December 2026). No claim in an earlier block counts,
 so do not claim on mainnet before that block has passed. The test
 networks are active already.
 
@@ -40,7 +44,7 @@ claimstones-wallet -rpccookie <path>/rpc.cookie
 
 (`^` continues a line on Windows; use `\` on Linux. Without the
 `--node-*` flags the server still serves coins and runs exactly, but
-cannot value them at the tip or relay transactions.)
+cannot work out their orchids at the tip or relay transactions.)
 
 | flag | meaning |
 |---|---|
@@ -73,7 +77,7 @@ from wallet code` recovers the whole wallet from the code alone.
 
 Two warnings, both absolute:
 
-- **Anyone who knows the code owns the orchids.** Treat it like cash.
+- **Anyone who knows the code owns the orchids.** Treat it like a private key.
 - **If the code is lost and the wallet file is gone, nothing can
   recover the wallet.** Nobody operates claimstones; there is no one
   to ask.
@@ -105,7 +109,7 @@ code again, for the day the paper needs rewriting.
 Give out your address. Two different things arrive on it:
 
 - **Bitcoin** sent to the address stays your bitcoin, and carries
-  unclaimed value you can claim (below).
+  unclaimed orchids you can claim (below).
 - **Orchids** sent by another wallet arrive as settled balance,
   riding on a small coin (330 sats) created by the sender.
 
@@ -130,20 +134,20 @@ it finds what any ordinary wallet would have used.
 Each coin shows three figures:
 
 - **sats** — the coin's bitcoin, untouched by anything here;
-- **unclaimed** — the sats that have not been landed yet;
-- **est. orchids to be landed** — the orchids a claim would mint now.
+- **unclaimed** — the sats whose orchids are still unclaimed;
+- **est. orchids to be landed** — the orchids a claim would land now.
 
 The orchid figure is an estimate, fixed only when the claim is mined;
 it is set by the chain's work (`constants.md`) and is never a price —
 nothing here has a market. Unclaimed orchids do not expire, but shrink
-about 3 % a month as the chain's work grows: claiming sooner mints
+about 3 % a month as the chain's work grows: claiming sooner lands
 more, and there is no deadline.
 
-If the server runs without a host node it cannot value at the tip; the
+If the server runs without a host node it cannot work out orchids at the tip; the
 coins and their unclaimed sats still show exactly, and the report says
 why the orchid figure is missing.
 
-## Claim: land the value on your own address
+## Claim: orchids to your own address
 
 `[k]` in the menu, or directly (the number is the fee rate in sat/vB):
 
@@ -151,11 +155,11 @@ why the orchid figure is missing.
 claimstones-wallet claim 2
 ```
 
-A claim takes every coin on your address that still has unclaimed
-value, and lands that value as orchid balance — on the same address,
-in one transaction. Coins already claimed stay untouched. You choose
-the fee rate; the wallet shows the whole plan before anything is
-signed:
+A claim takes every coin on your address that still carries unclaimed
+orchids and claims them in one transaction. They land in the orchid
+ledger as balance on the same address. Coins already claimed stay
+untouched. You choose the fee rate; the wallet shows the whole plan
+before anything is signed:
 
 - which coins go in, their sats and unclaimed sats;
 - the est. orchids to be landed;
@@ -169,13 +173,15 @@ coins as claimed and the orchids as balance.
 
 The wallet refuses a claim where the fee would eat more than a fifth
 of the coins — small coins at a high fee rate are better left until
-fees are low, since unclaimed value keeps.
+fees are low, since unclaimed orchids do not expire.
 
-## Claim and collect: coins in another wallet
+## Claim from another wallet
 
 Claim works on the wallet's own address. For bitcoin you keep
 elsewhere — a hardware wallet, Sparrow, any wallet that can sign a
-PSBT — the harvest flow lands the value without moving the bitcoin:
+PSBT — the wallet builds the claim for that wallet to sign. The
+bitcoin goes back to the address it came from, less the fee and 330
+sats, and the orchids land on this wallet's address:
 
 ```
 claimstones-wallet collect <funding address> <fee rate>
@@ -260,11 +266,11 @@ pinning every settled orchid to the wallet's own change — without it,
 an ordinary spend would sweep the balance to the destination. That is
 why Withdraw exists as a command instead of "just send from the file".
 
-One caution the envelope cannot cover: *unclaimed* value rides the
+One caution the envelope cannot cover: *unclaimed* orchids ride the
 sats themselves. The wallet spends already-claimed coins first, and if
-the amount forces coins with unclaimed value into the transaction, it
+the amount forces coins with unclaimed orchids into the transaction, it
 says how much and asks whether to claim first — claiming before
-withdrawing keeps that value here.
+withdrawing keeps those orchids here.
 
 ## Coming next
 

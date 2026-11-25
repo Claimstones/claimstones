@@ -790,7 +790,7 @@ def menu(rpc: IndexerRpc, network: str, wallet_path: str) -> int:
                 items.append("  [k] claim — land the unclaimed orchids on"
                              " the wallet address")
                 items.append("  [s] send orchids    [w] withdraw bitcoin")
-                items.append("  [e] external claim and collect — harvest"
+                items.append("  [e] external claim — land the orchids of"
                              " UTXOs another wallet holds")
                 items.append("  [o] backup — show the wallet code")
                 items.append("  [p] change the wallet password")
