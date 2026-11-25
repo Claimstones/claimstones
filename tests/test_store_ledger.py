@@ -192,14 +192,29 @@ class LedgerStoreTests(unittest.TestCase):
 
     def test_ledger_counters_exist_and_persist(self):
         s = self.store
-        self.assertIn("minted", STAT_KEYS)
-        self.assertEqual((s.stats["minted"], s.stats["burned"]), (0, 0))
-        s.stats["minted"] += 500
+        self.assertIn("landed", STAT_KEYS)
+        self.assertEqual((s.stats["landed"], s.stats["burned"]), (0, 0))
+        s.stats["landed"] += 500
         s.stats["burned"] += 20
         s.commit()
         self.close(s)
         again = self.open("db", readonly=True)
-        self.assertEqual((again.stats["minted"], again.stats["burned"]), (500, 20))
+        self.assertEqual((again.stats["landed"], again.stats["burned"]), (500, 20))
+
+    def test_old_minted_counter_is_read_and_replaced(self):
+        # "landed" was "minted" until 2026-11-25; signet's index holds
+        # 311 033 seeds under the old key. Read once, rewritten on commit.
+        s = self.store
+        s.set_meta("minted", "311033")
+        self.close(s)
+        s = self.open("db")
+        self.assertEqual(s.stats["landed"], 311033)
+        s.commit()
+        self.assertIsNone(s.get_meta("minted"))
+        self.assertEqual(s.get_meta("landed"), "311033")
+        self.close(s)
+        again = self.open("db", readonly=True)
+        self.assertEqual(again.stats["landed"], 311033)
 
 
 def test_reader_without_the_ledger_answers_nothing(tmp_path):

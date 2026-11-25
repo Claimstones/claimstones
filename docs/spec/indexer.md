@@ -151,7 +151,7 @@ is kept `undo_depth` blocks deep (1000 at present) and pruned below.
 A land that moves to another block is recomputed there with the new
 `W(c)` (`land.md` §Finality); vector 14 is the acceptance test, and
 the regtest end-to-end reorgs across a land. Counters (`utxos`,
-`runs`, `lands`, `minted`, `burned`) are adjusted from the undone rows;
+`runs`, `lands`, `landed`, `burned`) are adjusted from the undone rows;
 they are reporting, never consensus.
 
 The daemon commits whole block windows, so a reader's view is always
@@ -165,7 +165,7 @@ uncommitted window and nothing else.
   that carried LAND. Never read by the step (the double-claim check is
   `PLAIN`); serves `gettxstatus`, stats and the explorer.
 - `work` — see §Work; recomputable from headers.
-- Counters in `meta`: `utxos`, `runs`, `txs`, `lands`, `minted`,
+- Counters in `meta`: `utxos`, `runs`, `txs`, `lands`, `landed`,
   `burned`, `ledger_height` (the height from which balances exist).
 
 ## The ledger cannot be computed afterwards

@@ -195,7 +195,7 @@ class IndexQueries:
             # height from which balances exist, null before the fused
             # daemon ever ran on this index
             "lands": s["lands"],
-            "minted": s["minted"],
+            "landed": s["landed"],
             "burned": s["burned"],
             "ledger_height": int(ledger_height) if ledger_height else None,
         }

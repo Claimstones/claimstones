@@ -65,9 +65,25 @@ PLAIN = 0xFFFFFFFF  # run height meaning "landed already; no latent value"
 BIP30_HEIGHTS = {91842, 91880}   # duplicate coinbase txids (BIP30)
 
 # The counters both stores keep in meta (reporting, never consensus).
-# minted/burned are the ledger half's (docs/spec/indexer.md §Derived).
+# landed/burned are the ledger half's (docs/spec/indexer.md §Derived):
+# seeds landed in the orchid ledger, and seeds burned.
 STAT_KEYS = ("utxos", "runs", "bytes", "script_bytes", "txs", "lands",
-             "minted", "burned")
+             "landed", "burned")
+
+# "landed" was called "minted" until 2026-11-25. A database written before
+# then has only the old key; it is read once and replaced on the next commit.
+LEGACY_STAT_KEYS = {"landed": "minted"}
+
+
+def load_stats(get_meta) -> dict[str, int]:
+    """The counters from a store's meta, old key names included."""
+    stats = {}
+    for k in STAT_KEYS:
+        v = get_meta(k)
+        if v is None and k in LEGACY_STAT_KEYS:
+            v = get_meta(LEGACY_STAT_KEYS[k])
+        stats[k] = int(v or 0)
+    return stats
 
 Run = tuple[int, int]   # (birth height or PLAIN, sat count)
 
@@ -246,7 +262,7 @@ class BirthStore:
                 f"start a fresh database (delete the file and its -wal/-shm)")
         self.commit_every = commit_every
         self.in_tx = False
-        self.stats = {k: int(self.get_meta(k) or 0) for k in STAT_KEYS}
+        self.stats = load_stats(self.get_meta)
 
     def has_script_index(self) -> bool:
         return self.db.execute(
@@ -543,7 +559,7 @@ class BirthIndexer:
             store.set_meta("ledger_height", str(height))
             self._ledger_marked = True
         s = store.stats
-        before = (s["lands"], s["minted"], s["burned"])
+        before = (s["lands"], s["landed"], s["burned"])
         fee_tails: list[list[Run]] = []
         for tx in block.txs[1:]:
             fee_tails.append(self._connect_tx(tx, height))
@@ -553,7 +569,7 @@ class BirthIndexer:
             extend_merged(stream, tail)
         self._place(coinbase, stream, height, 0)
         store.log_counters(height, s["lands"] - before[0],
-                           s["minted"] - before[1], s["burned"] - before[2])
+                           s["landed"] - before[1], s["burned"] - before[2])
         store.stats["txs"] += len(block.txs)
         store.set_meta("height", str(height))
         if height % self.store.commit_every == 0:
@@ -606,7 +622,7 @@ class BirthIndexer:
             seeds = step.seeds
             if land:
                 self.store.stats["lands"] += 1
-                self.store.stats["minted"] += step.landed
+                self.store.stats["landed"] += step.landed
                 self.store.add_land(tx.txid, height, step.landed,
                                     isinstance(artifact, Cenotaph))
             self.store.stats["burned"] += step.burned

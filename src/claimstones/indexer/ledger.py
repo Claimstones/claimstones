@@ -61,14 +61,14 @@ def stream_work(stream: Sequence[Run], work_of: WorkOf) -> int:
 
 
 def land_amount(stream: Sequence[Run], chainwork: int, work_of: WorkOf) -> int:
-    """Seeds minted by a land of `stream` in a block with cumulative
+    """Seeds landed by a land of `stream` in a block with cumulative
     chainwork `chainwork` (W(c)); 0 when the land is void.
 
         amount = (A_0 * N) div (W(c) * L)
 
     The one floor of the valuation. Void (land.md rule 5, constants.md
     §Arithmetic width): N = 0, or an amount above u128 max -- void, not
-    capped, so a wrong amount is never minted silently."""
+    capped, so a wrong amount never lands silently."""
     n = stream_work(stream, work_of)
     if n == 0:
         return 0

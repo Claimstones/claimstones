@@ -81,7 +81,7 @@ Settled orchid balances from the ledger half (`indexer.md`), served since 2026-1
  "utxos": [{"txid": "...", "vout": 1, "seeds": 12294}]}
 ```
 
-`getindexinfo` carries the ledger's counters beside the birth half's: `lands`, `minted`, `burned`, and `ledger_height` — the height from which balances exist, `null` until the fused daemon has run on the index. `time` is the header time (unix) of the block the index is at — asked of the node by the hash the daemon recorded, so it is the index's own tip even while the node is ahead — and `null` on a server without a node; a client shows it as the age of its view, which flags a stalled node, daemon or chain.
+`getindexinfo` carries the ledger's counters beside the birth half's: `lands`, `landed` (seeds landed in the orchid ledger; `minted` before 2026-11-25), `burned`, and `ledger_height` — the height from which balances exist, `null` until the fused daemon has run on the index. `time` is the header time (unix) of the block the index is at — asked of the node by the hash the daemon recorded, so it is the index's own tip even while the node is ahead — and `null` on a server without a node; a client shows it as the age of its view, which flags a stalled node, daemon or chain.
 
 ## Planned, not yet served
 - **Confirmation status** for a relayed transaction (`gettxstatus`): mempool / confirming / settled / dropped, as the node sees it. **[decide]** whether a pure passthrough of the node's `getrawtransaction` verbosity is enough.

@@ -129,7 +129,7 @@ class LandTests(FusedCase):
         self.assertEqual(self.store.balances_by_script(P2WPKH),
                          [(tid(3), 0, A_0 // 2)])
         s = self.store.stats
-        self.assertEqual((s["lands"], s["minted"], s["burned"]), (1, A_0 // 2, 0))
+        self.assertEqual((s["lands"], s["landed"], s["burned"]), (1, A_0 // 2, 0))
         # the fee sats were valued (the stream is the inputs) but their
         # runs reach the coinbase unlanded, as before
         self.assertEqual(self.store.get(tid(2), 0), [(1, S), (0, 1000)])
@@ -160,12 +160,12 @@ class LandTests(FusedCase):
         self.block(1, [coinbase(2, 1, claim=S + 1000), self.land_of_coinbase_1(3)])
         again = tx(4, inputs=[(tid(3), 0)], outputs=[(S - 2000, None), (0, land_script())])
         self.block(2, [coinbase(5, 2, claim=S + 1000), again])
-        self.assertEqual(self.store.get_balance(tid(4), 0), A_0 // 2)   # moved, not minted
+        self.assertEqual(self.store.get_balance(tid(4), 0), A_0 // 2)   # moved, not landed
         self.assertEqual(self.store.get_land(tid(4)), (2, 0, False))
         self.assertEqual(self.store.stats["lands"], 2)
-        self.assertEqual(self.store.stats["minted"], A_0 // 2)
+        self.assertEqual(self.store.stats["landed"], A_0 // 2)
 
-    def test_cenotaph_with_land_burns_the_minted_amount(self):
+    def test_cenotaph_with_land_burns_the_landed_amount(self):
         self.block(0, [coinbase(1, 0)])
         bad = tx(3, inputs=[(tid(1), 0)],
                  outputs=[(S - 1000, None), (0, raw_script([Tag.LAND, 0, Tag.LAND, 0]))])
@@ -174,17 +174,17 @@ class LandTests(FusedCase):
         self.assertEqual(self.store.get(tid(3), 0), [(PLAIN, S - 1000)])
         self.assertEqual(self.store.get_land(tid(3)), (1, A_0 // 2, True))
         s = self.store.stats
-        self.assertEqual((s["lands"], s["minted"], s["burned"]), (1, A_0 // 2, A_0 // 2))
+        self.assertEqual((s["lands"], s["landed"], s["burned"]), (1, A_0 // 2, A_0 // 2))
         self.assertEqual(list(self.store.iter_balances()), [])
 
-    def test_below_activation_nothing_is_minted(self):
+    def test_below_activation_nothing_lands(self):
         self.ix.activation_height = 5
         self.block(0, [coinbase(1, 0)])
         self.block(1, [coinbase(2, 1, claim=S + 1000), self.land_of_coinbase_1(3)])
         self.assertEqual(self.store.get_balance(tid(3), 0), 0)
         self.assertEqual(self.store.get(tid(3), 0), [(0, S - 1000)])
         self.assertIsNone(self.store.get_land(tid(3)))
-        self.assertEqual(self.store.stats["minted"], 0)
+        self.assertEqual(self.store.stats["landed"], 0)
 
 
 class ReorgTests(FusedCase):
@@ -201,7 +201,7 @@ class ReorgTests(FusedCase):
         self.assertIsNone(self.store.get_land(tid(3)))
         self.assertIsNone(self.store.get_work(1))
         s = self.store.stats
-        self.assertEqual((s["lands"], s["minted"]), (0, 0))      # counters undone too
+        self.assertEqual((s["lands"], s["landed"]), (0, 0))      # counters undone too
 
         self.block(1, [coinbase(4, 1)], salt=300)
         self.block(2, [coinbase(5, 2, claim=S + 1000), self.land_of_coinbase_1(3)], salt=300)
@@ -240,7 +240,7 @@ class ReorgTests(FusedCase):
         self.assertEqual(self.store.stats["burned"], A_0 // 2)
         self.ix.disconnect_block(1)
         s = self.store.stats
-        self.assertEqual((s["lands"], s["minted"], s["burned"]), (0, 0, 0))
+        self.assertEqual((s["lands"], s["landed"], s["burned"]), (0, 0, 0))
 
 
 if __name__ == "__main__":

@@ -3,7 +3,7 @@
 The in-wallet half of wallet-policy.md §What a wallet can do — Check
 found the coins, Claim lands them. The transaction is the claim
 template of wallet/land.py: two outputs, the LAND-only envelope and
-the wallet's own change; the minted orchids ride to output 1 by the
+the wallet's own change; the claimed orchids ride to output 1 by the
 default rule, and the only cost is the miner fee.
 
 Coin selection is the simple, safe rule: every coin on the wallet

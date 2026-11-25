@@ -4,7 +4,7 @@ A throwaway regtest bitcoind, a fresh LMDB birth index built from
 genesis by the real ChainFollower, the real indexer RPC server in a
 thread, and the wallet driven through its own CLI functions:
 
-  receive -> check -> claim (the minted amount equals land_amount
+  receive -> check -> claim (the landed amount equals land_amount
   recomputed from the node's headers) -> a reorg across the land (the
   balance is undone and recomputed) -> external claim-and-collect signed
   by Bitcoin Core itself (the seeds land on the carrier) -> withdraw
@@ -191,7 +191,7 @@ class RegtestEndToEnd(unittest.TestCase):
                                              "vout": coins[0]["vout"],
                                              "seeds": expected}])
             info = self.wrpc.getindexinfo()
-            self.assertEqual((info["lands"], info["minted"], info["burned"]),
+            self.assertEqual((info["lands"], info["landed"], info["burned"]),
                              (1, expected, 0))
             self.assertEqual(info["ledger_height"], 0)
             out = io.StringIO()
@@ -297,7 +297,7 @@ class RegtestEndToEnd(unittest.TestCase):
             self.assertEqual(self._seeds()["seeds"], claimed + collected - 100)
             info = self.wrpc.getindexinfo()
             self.assertEqual(info["burned"], 0)
-            self.assertEqual(info["minted"], claimed + collected)
+            self.assertEqual(info["landed"], claimed + collected)
 
 
 if __name__ == "__main__":

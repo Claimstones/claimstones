@@ -298,7 +298,7 @@ def main() -> int:
                              stop_path=stop_path or None)
     print(f"cs_indexer: following the tip from h={store.last_height()} "
           f"-> {args.db}  (utxos {fmt(store.stats['utxos'])}, "
-          f"lands {store.stats['lands']}, minted {store.stats['minted']}, "
+          f"lands {store.stats['lands']}, landed {store.stats['landed']}, "
           f"activation {indexer.activation_height}, "
           f"undo depth {args.undo_depth}, poll {args.poll}s)", flush=True)
     ok = False

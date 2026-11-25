@@ -62,7 +62,7 @@ def served(tmp_path_factory):
     store.set_meta(f"hash:{TIP}", "ab" * 32)        # as the daemon records it
     store.set_meta("ledger_height", "150")
     store.stats["lands"] = 2
-    store.stats["minted"] = 1239
+    store.stats["landed"] = 1239
     store.commit()
     store.close()
 
@@ -94,7 +94,7 @@ def test_getindexinfo(served):
     assert info["utxos"] == 3
     assert info["runs"] == 5
     assert info["schema"] == "3"
-    assert (info["lands"], info["minted"], info["burned"]) == (2, 1239, 0)
+    assert (info["lands"], info["landed"], info["burned"]) == (2, 1239, 0)
     assert info["ledger_height"] == 150
     assert info["time"] == TIP_TIME                 # the index tip's header
 

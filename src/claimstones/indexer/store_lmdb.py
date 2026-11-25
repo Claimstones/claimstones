@@ -29,7 +29,7 @@ the row kind above):
            with its row)
     undo   height + txid + b"L" (37) -> b"" for a land recorded in that
            block (undo = delete the land row)
-    undo   height + b"C" (5) -> the block's lands/minted/burned deltas
+    undo   height + b"C" (5) -> the block's lands/landed/burned deltas
            (undo = subtract them, so the counters survive a reorg exact)
 
 `work` rows are deleted on undo and rewritten on reconnect.
@@ -70,13 +70,14 @@ import lmdb
 if __package__ in (None, ""):
     sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.dirname(
         os.path.abspath(__file__)))))
-from claimstones.indexer.birth import (BIP30_HEIGHTS, STAT_KEYS, Run,
+from claimstones.indexer.birth import (BIP30_HEIGHTS, LEGACY_STAT_KEYS,
+                                       STAT_KEYS, Run, load_stats,
                                        decode_runs, encode_runs, run_count)
 
 SLEN = struct.Struct("<I")       # script_len header of a utxo value
 
 UNDO_ROW, UNDO_BAL, UNDO_LAND, UNDO_COUNTERS = 40, 41, 37, 5   # undo key lengths
-COUNTERS = struct.Struct(">I16s16s")           # lands, minted, burned deltas
+COUNTERS = struct.Struct(">I16s16s")           # lands, landed, burned deltas
 
 
 def _ukey(txid: bytes, vout: int) -> bytes:
@@ -179,7 +180,7 @@ class LmdbBirthStore:
         return self.d_bal is not None
 
     def _load_stats(self) -> dict[str, int]:
-        stats = {k: int(self.get_meta(k) or 0) for k in STAT_KEYS}
+        stats = load_stats(self.get_meta)
         if stats["bytes"] == 0 and stats["runs"]:
             stats["bytes"] = stats["runs"] * 12       # schema-3 pairs
         return stats
@@ -266,6 +267,9 @@ class LmdbBirthStore:
         self.flush_hot()
         for k, v in self.stats.items():
             self.set_meta(k, str(v))
+        for old in LEGACY_STAT_KEYS.values():
+            if self.get_meta(old) is not None:
+                self.del_meta(old)
         if self.in_tx:
             self.txn.commit()
             self.txn = None
@@ -515,15 +519,15 @@ class LmdbBirthStore:
         if height >= self.undo_from:
             self.txn.put(_undo_land_key(height, txid), b"", db=self.d_undo)
 
-    def log_counters(self, height: int, lands: int, minted: int,
+    def log_counters(self, height: int, lands: int, landed: int,
                      burned: int) -> None:
         """What a block added to the ledger counters, so undo_block can
         subtract it; the caller has already added it to `stats`."""
-        if height < self.undo_from or not (lands or minted or burned):
+        if height < self.undo_from or not (lands or landed or burned):
             return
         self.begin()
         self.txn.put(height.to_bytes(4, "big") + b"C",
-                     COUNTERS.pack(lands, minted.to_bytes(16, "big"),
+                     COUNTERS.pack(lands, landed.to_bytes(16, "big"),
                                    burned.to_bytes(16, "big")),
                      db=self.d_undo)
 
@@ -558,9 +562,9 @@ class LmdbBirthStore:
             if len(key) == UNDO_LAND:
                 self.txn.delete(key[4:36], db=self.d_land)
             elif len(key) == UNDO_COUNTERS:
-                lands, minted, burned = COUNTERS.unpack(value)
+                lands, landed, burned = COUNTERS.unpack(value)
                 self.stats["lands"] -= lands
-                self.stats["minted"] -= int.from_bytes(minted, "big")
+                self.stats["landed"] -= int.from_bytes(landed, "big")
                 self.stats["burned"] -= int.from_bytes(burned, "big")
             elif len(key) == UNDO_BAL:
                 self.txn.put(key[4:40], value, db=self.d_bal)
