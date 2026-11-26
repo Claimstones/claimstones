@@ -27,7 +27,7 @@ the row kind above):
     undo   height + txid + vout + b"B" (41) -> the spent outpoint's old
            balance (undo = restore it; a created outpoint's balance goes
            with its row)
-    undo   height + txid + b"L" (37) -> b"" for a land recorded in that
+    undo   height + txid + b"L" (37) -> b"" for a claim recorded in that
            block (undo = delete the land row)
     undo   height + b"C" (5) -> the block's lands/landed/burned deltas
            (undo = subtract them, so the counters survive a reorg exact)

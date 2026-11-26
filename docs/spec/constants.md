@@ -19,7 +19,7 @@ There is no W_0 and no launch height in the monetary rule.
 
 ## Valuation
 
-For a land included in block c, with input sats grouped by birth block h_i (n_i sats each):
+For a claim included in block c, with input sats grouped by birth block h_i (n_i sats each):
 
     amount(seeds) = floor( A_0 · Σ_i n_i · w(h_i) / s(h_i)  /  W(c) )
 
@@ -39,31 +39,31 @@ Adopted 2026-10-25, replacing `D = 5_000_000_000 · 2^33`. `D` was documented as
 
 ## After the last halving
 
-`s(h) = 0` from height 6 930 000 (halving 33, about the year 2140 — the chain has averaged 9.63 min per block since genesis, so the nominal schedule is the late estimate). Those blocks mint no sats, so their work has no carrier: `w(h)` enters `W(c)` and no land can ever claim it. **Normative: a birth height at or above 6 930 000 contributes nothing to `N`.** A coinbase LAND in block 6 929 999 mints `A_0 · w(h) / W(c)`; the same transaction one block later mints zero.
+`s(h) = 0` from height 6 930 000 (halving 33, about the year 2140 — the chain has averaged 9.63 min per block since genesis, so the nominal schedule is the late estimate). Those blocks create no sats, so their work has no carrier: `w(h)` enters `W(c)` and no claim can ever reach it. **Normative: a birth height at or above 6 930 000 contributes nothing to `N`.** A coinbase LAND in block 6 929 999 lands `A_0 · w(h) / W(c)`; the same transaction one block later lands zero.
 
 Two consequences, both accepted:
 
-- The identity that makes `A_0` the supply holds only up to 6 929 999. Block h mints exactly `s(h)` sats, each carrying `w(h)/s(h)`, so `Σ (every sat's share) = Σ_h w(h) = W` — a single land of the whole sat supply at `W(c)` mints exactly `A_0`. After halving 33, `W(c)` keeps growing against a frozen numerator, so the claimable share of `A_0` decays toward zero. (Issuance was never hard-capped at `A_0` in the other direction either: lands happen at different `W`, and landing every sat in its own birth block would have minted about 45 × `A_0` on the chain to date. Early landing is paid for out of later landers' share, which is the intended incentive.)
-- The carrier thins before it disappears. Halving 30 (height 6 300 000, ~2128) mints 4 sats per block, halving 31 two, halving 32 one. For the ~630 000 blocks between 2128 and 2140 a single satoshi carries an entire block's work, and burning it destroys that work permanently.
+- The identity that makes `A_0` the supply holds only up to 6 929 999. Block h creates exactly `s(h)` sats, each carrying `w(h)/s(h)`, so `Σ (every sat's share) = Σ_h w(h) = W` — a single claim of the whole sat supply at `W(c)` lands exactly `A_0`. After halving 33, `W(c)` keeps growing against a frozen numerator, so the claimable share of `A_0` decays toward zero. (Issuance was never hard-capped at `A_0` in the other direction either: claims happen at different `W`, and claiming every sat in its own birth block would have landed about 45 × `A_0` on the chain to date. Early claiming is paid for out of later claimers' share, which is the intended incentive.)
+- The carrier thins before it disappears. Halving 30 (height 6 300 000, ~2128) creates 4 sats per block, halving 31 two, halving 32 one. For the ~630 000 blocks between 2128 and 2140 a single satoshi carries an entire block's work, and burning it destroys that work permanently.
 
 Decided 2026-10-25: leave both alone. Nothing is claimable after halving 33, and nothing special happens at halvings 30–32. Two alternatives were considered and rejected for now:
 
-- **B** — a coinbase LAND claims `w(h)` for its own block directly, with no sats in the calculation. Numerically this is already what a coinbase LAND does (`s(h)` sats × `w(h)/s(h)` = `w(h)`), so it reads as one rule with two carriers. It needs a per-height double-claim marker, because with no sats there are no runs to mark `PLAIN`, and it is use-it-or-lose-it: no carrier means nobody downstream can land it later.
-- **C** — rebirth the coinbase output sats at `h`, taking `s(h)` as the coinbase's total output value. Keeps a real, spendable, later-landable carrier and preserves the identity, but overwrites the fee sats' own lineage (which `land.md` §Coinbase land keeps), would be the first rule under which a sat can *gain* value, and still fails for a zero-fee block.
+- **B** — a coinbase LAND claims `w(h)` for its own block directly, with no sats in the calculation. Numerically this is already what a coinbase LAND does (`s(h)` sats × `w(h)/s(h)` = `w(h)`), so it reads as one rule with two carriers. It needs a per-height double-claim marker, because with no sats there are no runs to mark `PLAIN`, and it is use-it-or-lose-it: no carrier means nobody downstream can claim it later.
+- **C** — rebirth the coinbase output sats at `h`, taking `s(h)` as the coinbase's total output value. Keeps a real, spendable, later-claimable carrier and preserves the identity, but overwrites the fee sats' own lineage (which `land.md` rule 6, Coinbase claim, keeps), would be the first rule under which a sat can *gain* value, and still fails for a zero-fee block.
 
-The deciding argument is forward compatibility rather than the 113 years of notice. A is the only one of the three that stays open in both directions: a later generation can add B or C without invalidating anything minted under A, whereas adopting B or C now could not be retracted once holders had priced it in. Choosing the conservative base is therefore not a deferral of the decision but the one choice that preserves it.
+The deciding argument is forward compatibility rather than the 113 years of notice. A is the only one of the three that stays open in both directions: a later generation can add B or C without invalidating anything landed under A, whereas adopting B or C now could not be retracted once holders had priced it in. Choosing the conservative base is therefore not a deferral of the decision but the one choice that preserves it.
 
 ## Arithmetic width
 
-`A_0 · N` exceeds u128 (`L` is 140 bits, so N runs to roughly 200). Normative: intermediates at arbitrary precision; only wire-encoded values (edict amounts) are bound to u128. A land whose computed amount exceeds u128 max is void (decided 2026-10-09: void, not cap — a cap would mint a wrong amount silently); unreachable with these constants.
+`A_0 · N` exceeds u128 (`L` is 140 bits, so N runs to roughly 200). Normative: intermediates at arbitrary precision; only wire-encoded values (edict amounts) are bound to u128. A claim whose computed amount exceeds u128 max is void (decided 2026-10-09: void, not cap — a cap would land a wrong amount silently); unreachable with these constants.
 
 ## Non-monetary constants
 
 | name | value | meaning |
 |---|---|---|
-| `ACTIVATION_HEIGHT` | **980 000** on bitcoin mainnet (decided 2026-11-23); 1 on test chains | indexers ignore envelopes before it; exists only so all indexers start from the same state. All mainnet activity below it (the block-967875 land, the sponsor pool lands) was testing and does not count. In code it is `ACTIVATION_HEIGHT = 980_000` in `protocol/codec.py` — one definition, read by both indexers and reported by `getindexinfo` (`indexer-rpc.md`), and a constant rather than a flag, since a per-run option would defeat the only thing it exists for. **The value is irreversible for the birth index; the land-free snapshot was taken first, at 975 433** (`../birth-index-check.md`). `PLAIN` propagates forward through every later spend, so after the first land only a rebuild from genesis — an overnight fastbuild run (`fastbuild.md`) — recovers a land-free index. **Decided 2026-11-11 for test chains:** testnet, signet and regtest are active from height 1 (`codec.activation_height(chain)`, the chain taken from the node's `getblockchaininfo` and recorded in the index, never a flag) — a test network exists to exercise the protocol, and a land that cannot count tests nothing |
-| `LAND_FINALITY` | 6 | confirmations before a wallet or server treats a land as settled (policy floor, not consensus). Decided 2026-09-21: kept at 6; a claim is a one-time operation so a few extra minutes of "pending" is not a cost worth trading against reorg safety, and coinbase sats cannot be spent (so cannot be landed) before their own 100-block maturity regardless. |
-| `DUST_SEEDS` | 1 | default walk cutoff for a verifying walker (`land.md` §Walk cutoff). **Not consensus** since 2026-10-25: the valuation is exact over all runs, and a consensus answer requires the cutoff off (`d = 0`). A positive value only under-mints, and trades accuracy for walk speed at the verifier's own choice |
+| `ACTIVATION_HEIGHT` | **980 000** on bitcoin mainnet (decided 2026-11-23); 1 on test chains | indexers ignore envelopes before it; exists only so all indexers start from the same state. All mainnet activity below it (the block-967875 claim, the sponsor pool claims) was testing and does not count. In code it is `ACTIVATION_HEIGHT = 980_000` in `protocol/codec.py` — one definition, read by both indexers and reported by `getindexinfo` (`indexer-rpc.md`), and a constant rather than a flag, since a per-run option would defeat the only thing it exists for. **The value is irreversible for the birth index; the land-free snapshot was taken first, at 975 433** (`../birth-index-check.md`). `PLAIN` propagates forward through every later spend, so after the first claim only a rebuild from genesis — an overnight fastbuild run (`fastbuild.md`) — recovers a land-free index. **Decided 2026-11-11 for test chains:** testnet, signet and regtest are active from height 1 (`codec.activation_height(chain)`, the chain taken from the node's `getblockchaininfo` and recorded in the index, never a flag) — a test network exists to exercise the protocol, and a claim that cannot count tests nothing |
+| `LAND_FINALITY` | 6 | confirmations before a wallet or server treats a claim as settled (policy floor, not consensus). Decided 2026-09-21: kept at 6; a claim is a one-time operation so a few extra minutes of "pending" is not a cost worth trading against reorg safety, and coinbase sats cannot be spent (so cannot be claimed) before their own 100-block maturity regardless. |
+| `DUST_SEEDS` | 1 | default walk cutoff for a verifying walker (`land.md` §Walk cutoff). **Not consensus** since 2026-10-25: the valuation is exact over all runs, and a consensus answer requires the cutoff off (`d = 0`). A positive value only under-counts, and trades accuracy for walk speed at the verifier's own choice |
 
 ## Reference numbers (2026-08-14, height 962424)
 
@@ -73,4 +73,4 @@ The deciding argument is forward compatibility rather than the 113 years of noti
 | w(tip) | 5.48e23 hashes |
 | seeds per block | 1.66e8 (1.66e6 orchids) |
 | seeds per 2026 subsidy sat | about 0.53 |
-| decay of unclaimed value | −5.5e-6 per block, about −2.8 % per month |
+| decay of unclaimed orchids | −5.5e-6 per block, about −2.8 % per month |

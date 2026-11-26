@@ -1,6 +1,6 @@
 """Check any bitcoin: addresses, xpubs and descriptors, watch-only.
 
-The wallet-policy.md feature — per UTXO: sats, latent value, and the
+The wallet-policy.md feature — per UTXO: sats, unclaimed sats, and the
 "est. production cost" at W(tip). The lines are parsed and derived by
 bitcoin/descriptors.py, each ranged branch walked under the gap limit;
 the index answers per script (`getaddressutxos`), and valuation comes

@@ -3,7 +3,7 @@
 For every unspent output the index holds an ordered list of runs
 (birth_height, sat_count): the output's sats in ordinal FIFO order,
 grouped by the coinbase block that created them. A run with the PLAIN
-height marks sats whose latent value was already landed.
+height marks sats whose orchids were already claimed.
 
 Connecting a block (docs/spec/land.md, Lineage walk):
 
@@ -60,7 +60,7 @@ from claimstones.lineage.walker import (Rpc, RpcCookieWait, RpcError,
 from claimstones.protocol.codec import (ACTIVATION_HEIGHT, MAGIC, Cenotaph,
                                         activation_height, decipher)
 
-PLAIN = 0xFFFFFFFF  # run height meaning "landed already; no latent value"
+PLAIN = 0xFFFFFFFF  # run height meaning "claimed already; no unclaimed orchids"
 
 BIP30_HEIGHTS = {91842, 91880}   # duplicate coinbase txids (BIP30)
 
@@ -499,7 +499,7 @@ def _has_envelope(tx: Tx) -> bool:
 class BirthIndexer:
     """The fused indexer (docs/spec/indexer.md §Determinism): per block,
     W(h) from the header; per transaction, the birth half (runs cut
-    across the outputs, PLAIN after a land) and the ledger half
+    across the outputs, PLAIN after a claim) and the ledger half
     (balances: ledger.py's land amount and allocation) in one pass over
     the same input stream.
 
@@ -605,7 +605,7 @@ class BirthIndexer:
         # nothing lands and the stream carries only real birth heights. Note
         # what the collapse below does: it replaces this output's runs in the
         # stored row, and that row is the stream a later spend reads, so PLAIN
-        # propagates forward. Landedness flows with the sats exactly as a
+        # propagates forward. Claimed status flows with the sats exactly as a
         # birth height does -- see docs/birth-index-check.md.
         artifact = None
         if (self.activation_height is not None

@@ -1,9 +1,9 @@
-"""The land transactions: claim and claim-and-collect, built and checked.
+"""The claim transactions: claim and claim-and-collect, built and checked.
 
 The templates of docs/spec/wallet-policy.md §Transaction templates, as
-code. The claim lands the wallet's own coins: two outputs, the LAND-only
-envelope and the wallet's change. The claim-and-collect (the harvest
-model, spec/land-psbt.md) lands anyone's coins: three outputs — the
+code. The claim takes the wallet's own coins: two outputs, the LAND-only
+envelope and the wallet's change. The claim-and-collect
+(spec/land-psbt.md) claims anyone's coins: three outputs — the
 envelope, `carrier_sats` to the orchid wallet, everything else back to
 the address it came from — signed by whatever wallet holds the keys.
 
@@ -124,7 +124,7 @@ def script_type(script: bytes) -> str:
         return "pkh"
     raise TemplateError(
         "an input pays a script this builder cannot spend; only single-key "
-        "UTXOs (taproot, segwit, legacy) can fund a land")
+        "UTXOs (taproot, segwit, legacy) can fund a claim")
 
 
 def _check_key_matches(kind: str, pubkey: bytes, script: bytes) -> None:
@@ -215,7 +215,7 @@ def _fill_input(psbt: Psbt, n: int, f: FundingInput, kind: str) -> None:
 
 def build_claim(inputs: list[FundingInput], wallet_script: bytes,
                 internal_key: bytes, fee_rate: float) -> tuple[Psbt, ClaimSummary]:
-    """The claim template: the wallet lands its own coins. Exactly two
+    """The claim template: the wallet claims its own coins. Exactly two
     outputs — the LAND-only envelope, then the wallet's own address with
     all input sats minus the miner fee."""
     if not inputs:
@@ -253,7 +253,7 @@ def build_claim(inputs: list[FundingInput], wallet_script: bytes,
 
 def build_collect(inputs: list[FundingInput], orchids_script: bytes,
                   return_script: bytes, fee_rate: float) -> tuple[Psbt, CollectSummary]:
-    """The claim-and-collect template (the harvest model): land external
+    """The claim-and-collect template: claim external
     coins, orchids to the wallet on the carrier, the bitcoin back where
     it came from. One funding script per transaction — the return output
     is then always unambiguous (spec/land-psbt.md)."""
@@ -322,7 +322,7 @@ def _check_envelope(tx: Transaction) -> None:
     if not artifact.land:
         raise TemplateError("the envelope carries no LAND")
     if artifact.edicts:
-        raise TemplateError("a land envelope must carry no edicts")
+        raise TemplateError("a claim envelope must carry no edicts")
     if artifact.pointer not in (None, 1):
         raise TemplateError("the envelope's pointer leaves output 1")
 

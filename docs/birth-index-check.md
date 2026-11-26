@@ -171,14 +171,14 @@ Below that height `decipher` is never called and no run is ever marked
 consequences are worth having: a content hash over its canonical rows means
 something, and somebody else's rebuild is a genuine independent witness.
 
-The first land at or above that height ends this permanently. `PLAIN` is not an
+The first claim at or above that height ends this permanently. `PLAIN` is not an
 annotation on the landed output: the indexer cuts the input run stream
 positionally across the outputs, so a `PLAIN` run enters the stream of every
 later spend and travels forward with the sats
 (`test_land_marks_outputs_plain` asserts exactly this). It cannot be
 subtracted out afterwards, and it cannot be recomputed by overlaying a list of
-lands without replaying the whole forward walk — which is the indexer again.
-After the first land there is no land-free index except a rebuild from
+claims without replaying the whole forward walk — which is the indexer again.
+After the first claim there is no land-free index except a rebuild from
 genesis.
 
 **So take a snapshot before activation.** The fastbuild changed its economics
@@ -186,7 +186,7 @@ genesis.
 snapshot is the pinned, verified, hashed artifact at a known height that later
 audits compare against, and restarting from a copy plus a replay of the blocks
 since is minutes against hours. One snapshot, taken as late as possible, is
-the whole plan: the daemon gates landing on `height >= activation_height`, so
+the whole plan: the daemon gates claims on `height >= activation_height`, so
 every block committed before the stop is a block a rebuild never has to
 replay.
 

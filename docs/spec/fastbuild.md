@@ -5,7 +5,7 @@ forward replay for building from genesis ("a slow build is a showstopper for onb
 new users"). Spill records fixed-width, serving store LMDB, numpy-first
 arithmetic with a measured Rust trigger. The incremental
 tip-following design of `indexer/birth.py` is unchanged and takes over at the tip;
-this spec covers only the bulk build. Draft until the first phase lands.
+this spec covers only the bulk build. Draft until the first phase is built.
 
 ## Why: what the measurements said
 

@@ -81,7 +81,7 @@ class LandAmountTests(unittest.TestCase):
 
     def test_4_one_birth_block_matches_the_formula(self):
         # Every sat of block 100 carries w/s = 1000/5e9 hashes. Landing
-        # the whole block at W = 1000 mints A_0: the identity of
+        # the whole block at W = 1000 lands A_0: the identity of
         # constants.md §After the last halving, one block in isolation.
         work_of = w_table(h100=1000)
         self.assertEqual(land_amount([(H0, 5_000_000_000)], 1000, work_of), A_0)
@@ -110,7 +110,7 @@ class LandAmountTests(unittest.TestCase):
 
     def test_7_coinbase_land_is_the_block_itself(self):
         # The coinbase stream is s(h) sats born at h (plus fee tails,
-        # none here): a coinbase LAND at W(h) = w(h) + W(h-1) mints
+        # none here): a coinbase LAND at W(h) = w(h) + W(h-1) lands
         # A_0 * w(h) / W(h).
         work_of = w_table(h100=1_000)
         W = 1_000 + 9_000

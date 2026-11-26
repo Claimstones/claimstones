@@ -4,7 +4,7 @@ The fastbuild (fastbuild/) built the birth index to a height; this
 process keeps it at the chain tip. Named per the 2026-10-28 decision:
 the fused daemon (birth runs + orchid ledger) is cs_indexer. Since
 2026-11-13 it runs both halves (docs/spec/indexer.md): runs, PLAIN after
-a land, W(h) from every header, and balances from the first envelope at
+a claim, W(h) from every header, and balances from the first envelope at
 or above ACTIVATION_HEIGHT. An index resumed above genesis gets its work
 table filled from the node's headers at startup (indexer/work.py).
 
@@ -283,7 +283,7 @@ def main() -> int:
         store.close()
         return 1
     # An index that starts above genesis (the land-free snapshot) has no
-    # W(h) for the heights it never replayed; a land needs w(h) for any
+    # W(h) for the heights it never replayed; a claim needs w(h) for any
     # birth height, so fill the table from the node's headers once.
     last = store.last_height()
     if last is not None and store.get_work(last) is None:

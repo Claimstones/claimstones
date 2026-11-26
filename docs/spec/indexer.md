@@ -2,12 +2,12 @@
 
 One daemon, two halves, one pass (decided 2026-10-28, specified
 2026-11-13). The **birth half** holds every unspent output's runs —
-its sats grouped by birth block, with `PLAIN` for sats whose latent
-value was already landed. The **ledger half** holds every unspent
+its sats grouped by birth block, with `PLAIN` for sats whose orchids
+were already claimed. The **ledger half** holds every unspent
 output's orchid balance in seeds. Both are written by the same
 per-transaction step, from the same input stream, and undone by the
 same undo log. This replaces the 2026-09-17 draft, whose state was the
-balance alone and whose land step ran a lineage walk; the walk is now
+balance alone and whose claim step ran a lineage walk; the walk is now
 the independent verification procedure (`land.md` §Where the runs come
 from), not the consensus rule.
 
@@ -76,15 +76,15 @@ output, so placing it last is unobservable. Per transaction:
    `Cenotaph`, or nothing (`envelope.md`). Below activation (980 000
    on bitcoin mainnet, `constants.md`) there is no envelope and steps 3
    and 5 reduce to the default rule.
-3. **Land.** If the artifact carries LAND — an `Envelope` or a
+3. **Claim.** If the artifact carries LAND — an `Envelope` or a
    `Cenotaph` alike — compute `amount` over the input stream at `W(c)`
    exactly as `land.md` §Valuation sequence (one floor, `c` this
    block). If `0 < amount ≤ u128 max`, add it to the pot; otherwise
-   the land is void and the pot is unchanged (`land.md` rule 5,
+   the claim is void and the pot is unchanged (`land.md` rule 5,
    `constants.md` §Arithmetic width). Either way, and for a cenotaph
    too, every output run becomes a single `PLAIN` run of the output's
-   sat count (rule 3): landedness travels forward with the sats and is
-   the double-claim check. The land is recorded (§Derived) and
+   sat count (rule 3): claimed status travels forward with the sats and is
+   the double-claim check. The claim is recorded (§Derived) and
    `lands` counts it.
 4. **Cut the runs.** The stream is cut across the outputs in output
    order by output value (`birth.py` `cut_runs`); the leftover is the
@@ -130,11 +130,11 @@ fills `work` for every height below its start from the header chain it
 did not replay, once, at daemon start (`indexer/work.py`): one header
 per retarget period, since nBits is constant inside a period on main,
 signet and regtest, and `W(start − 1)` so computed must equal the
-node's `chainwork` there exactly or nothing is written. A land values
+node's `chainwork` there exactly or nothing is written. A claim values
 runs born at any height, so every `w(h)` has to exist, not only the
 sum. Agreement with the node's `chainwork` at any later height is a
 check the daemon may log, not an input. `work` is a chain fact,
-recomputable from headers; it is kept so that landing needs no node
+recomputable from headers; it is kept so that a claim needs no node
 call, reorgs rewrite it by height, and `getlatent` and the planned
 `getworktable` (`indexer-rpc.md`) read it instead of the node.
 
@@ -148,9 +148,9 @@ restores both halves in one pass and deletes the block's `land` rows;
 `work` rows above the fork are simply rewritten on reconnect. The log
 is kept `undo_depth` blocks deep (1000 at present) and pruned below.
 
-A land that moves to another block is recomputed there with the new
+A claim that moves to another block is recomputed there with the new
 `W(c)` (`land.md` §Finality); vector 14 is the acceptance test, and
-the regtest end-to-end reorgs across a land. Counters (`utxos`,
+the regtest end-to-end reorgs across a claim. Counters (`utxos`,
 `runs`, `lands`, `landed`, `burned`) are adjusted from the undone rows;
 they are reporting, never consensus.
 
@@ -173,7 +173,7 @@ uncommitted window and nothing else.
 Step 1 deletes spent rows and step 3 overwrites runs with `PLAIN`. A
 birth index that passed `ACTIVATION_HEIGHT` without the ledger half
 running can therefore never acquire balances: the input streams of the
-lands it saw are gone. Balances exist only in an index that ran the
+claims it saw are gone. Balances exist only in an index that ran the
 full step from the first envelope on. Operationally: the fused daemon
 must be the one following the chain when the activation block
 arrives, and the land-free snapshot (`../birth-index-check.md`) is the
@@ -201,18 +201,18 @@ real node.
    ledger serves.)*
 5. LAND on sats from several birth blocks; one floor.
 6. LAND on inputs already landed: void; the transfer part executes.
-7. LAND in a coinbase (degenerate land).
+7. LAND in a coinbase (degenerate claim).
 8. LAND with fee sats: the fee sats' value goes to the claimer.
-9. Cenotaph with LAND: balances and latent value burned; a later land
+9. Cenotaph with LAND: balances and unclaimed orchids burned; a later claim
    of the outputs is void.
-10. Cenotaph without LAND: balances burned; a later land of the
+10. Cenotaph without LAND: balances burned; a later claim of the
     outputs is valid.
 11. LIFT present: cenotaph.
 12. Unknown asset ID in an edict: void edict.
 13. Walk cutoff is not consensus: the index's amount equals a backward
     walk at `d = 0`; a walk at `d > 0` may return less, never more
     (`land.md` §Walk cutoff). A walker test, not an indexer test.
-14. Reorg: the land moves one block; the amount is recomputed at the
+14. Reorg: the claim moves one block; the amount is recomputed at the
     new W(c); state and both digests equal a fresh sync. *(e2e: the
-    reorg across the land.)*
+    reorg across the claim.)*
 15. Runestone in the same transaction: both protocols independent.

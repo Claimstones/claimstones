@@ -6,16 +6,16 @@ Per transaction, in block order:
   1. locate the envelope (protocol/codec.py);
   2. classify cenotaph or valid;
   3. sum the input balances into the unallocated pot;
-  4. if LAND, value every input sat at W(c) and add the amount (a land
-     of inputs with zero latent value is void: skipped);
+  4. if LAND, value every input sat at W(c) and add the amount (a claim
+     of inputs with no unclaimed orchids is void: skipped);
   5. apply edicts, the pointer, the default rule;
   6. on a cenotaph, burn everything (and if the cenotaph carried LAND,
-     the inputs' latent value is landed and burned too).
+     the inputs' unclaimed orchids land and burn too).
 
 The allocation algorithm (edict distribution, split across outputs,
 default output, cenotaph burn) is ported from ord's rune_updater.rs,
 specialised to a single asset. Etching and minting do not exist here:
-orchids come into existence only by landing.
+orchids land only by a claim.
 
 Valuation is injected as a `Valuer` so the engine stays a pure function
 of chain data and can be tested with a fake. `WalkerValuer` is the
@@ -65,7 +65,7 @@ from claimstones.protocol.codec import (
 # ---------------------------------------------------------------------------
 
 class Valuer(Protocol):
-    """What the land step needs from the outside world."""
+    """What the claim step needs from the outside world."""
 
     def chainwork(self, height: int) -> int:
         """W(c): cumulative chainwork in hashes including block `height`."""
@@ -74,7 +74,7 @@ class Valuer(Protocol):
         """N of constants.md for every input sat of `tx` (for a coinbase,
         for its whole sat stream: subsidy then fee tails), in scaled work
         (hashes times SUBSIDY_SCALE). Ranges dropped by the walk cutoff
-        and sats descending from an earlier land contribute 0.
+        and sats descending from an earlier claim contribute 0.
 
         Must be a deterministic function of chain data; raise rather
         than return a truncated value."""
@@ -228,7 +228,7 @@ class OrchidIndexer:
                 and height >= self.activation_height)
 
     def index_block(self, block: Block) -> None:
-        chainwork: Optional[int] = None   # W(c), fetched on first land
+        chainwork: Optional[int] = None   # W(c), fetched on first claim
         burned = 0
         counts = self._counts(block.height)      # constant across the block
         for tx in block.txs:
@@ -245,7 +245,7 @@ class OrchidIndexer:
         the transactions it broadcast, server/orchids.py): decipher, land,
         edicts, remainder. `chainwork` is W(c) of the inclusion block."""
         # The same activation gate as index_block. Without it this path would
-        # credit a land that index_block ignores, and the server's own replay
+        # credit a claim that index_block ignores, and the server's own replay
         # would disagree with the index it is standing in for.
         artifact = decipher(tx) if self._counts(height) else None
         self._index_tx(tx, height, artifact, chainwork, 0)
@@ -260,7 +260,7 @@ class OrchidIndexer:
 
         allocated = [0] * len(tx.outputs)
 
-        # (4) the land step: value every input sat at W(c)
+        # (4) the claim step: value every input sat at W(c)
         landed = 0
         if artifact is not None and artifact.land:
             if chainwork is None:
@@ -272,7 +272,7 @@ class OrchidIndexer:
             if landed > 0:
                 unallocated += landed
             # Every output sat is plain from here on, even for a void
-            # land (zero latent value) and for a cenotaph with LAND.
+            # claim (no unclaimed orchids) and for a cenotaph with LAND.
             self.store.add_land(txid, height, landed, isinstance(artifact, Cenotaph))
 
         # (5) edicts
@@ -346,7 +346,7 @@ class OrchidIndexer:
 # ---------------------------------------------------------------------------
 
 class WalkerValuer:
-    """Values lands by walking input lineages through Bitcoin Core RPC.
+    """Values claims by walking input lineages through Bitcoin Core RPC.
 
     The walker's node budget is set unbounded and any walk that is not
     deterministic (budget, RPC failure, anomaly) raises

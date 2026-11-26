@@ -301,7 +301,7 @@ class CenotaphTests(ReplayCase):
         self.run_block(tx(2, inputs=[(tid(1), 0)], outputs=[out(), op_return(script)]))
         self.assertEqual(self.burned(), 1000)
         self.assertFalse(self.store.is_landed(tid(2)))
-        # latent value untouched: a later land of the outputs is valid
+        # unclaimed orchids untouched: a later claim of the outputs is valid
         self.valuer.work_of[(tid(2), 0)] = work(7)
         self.run_block(tx(3, inputs=[(tid(2), 0)], outputs=[out(), op_return(land_script())]))
         self.assertEqual(self.balance(3, 0), 7)

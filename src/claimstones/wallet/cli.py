@@ -388,7 +388,7 @@ def do_claim(rpc: IndexerRpc, key: WalletKey, fee_rate: float,
 
 
 def print_collect_plan(plan: CollectPlan, out=STDOUT) -> None:
-    """What is on the funding address and what landing it yields; what
+    """What is on the funding address and what claiming it yields; what
     the signer pays follows the file names, in do_collect."""
     w = out.write
     s = plan.summary

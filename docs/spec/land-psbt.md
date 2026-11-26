@@ -2,7 +2,7 @@
 
 A small service that builds the claim-and-collect PSBT of
 `wallet-policy.md` §Transaction templates for anyone who can sign with
-an ordinary bitcoin wallet. It exists so orchids can be landed with no
+an ordinary bitcoin wallet. It exists so orchids can be claimed with no
 claimstones wallet at all: name the address holding the bitcoin and the
 address that will keep the orchids, sign what comes back in the wallet
 you already trust, broadcast anywhere. Drafted 2026-11-08.
@@ -120,5 +120,5 @@ address. No broadcast at launch — the signer's wallet does that;
 accepting the signed transaction back and forwarding it to Spec 6
 `sendrawtransaction` is not offered at launch (decided 2026-11-12); adding
 it later needs no protocol change. Collecting settled orchids (as
-opposed to landing latent value) waits on per-outpoint balances from
+opposed to claiming unclaimed orchids) waits on per-outpoint balances from
 the index, exactly as the wallet's external form does.

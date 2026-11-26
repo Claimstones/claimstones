@@ -109,7 +109,7 @@ class ScaleTests(unittest.TestCase):
 
     def test_the_cliff_at_the_last_halving_is_deliberate(self):
         """constants.md §After the last halving, decided 2026-10-25
-        (option A): a block from halving 33 on mints no sats, so its
+        (option A): a block from halving 33 on creates no sats, so its
         work has no carrier and no land can claim it. Pinned because it
         is a cliff, not a limit -- the block before it pays in full."""
         W = 104_820_700_000_000_000_000_000_000_000
@@ -117,7 +117,7 @@ class ScaleTests(unittest.TestCase):
         last = HALVINGS * HALVING_INTERVAL - 1          # 6 929 999
         first_dead = HALVINGS * HALVING_INTERVAL        # 6 930 000
 
-        # the last block with a subsidy mints one sat carrying all of w(h)
+        # the last block with a subsidy creates one sat carrying all of w(h)
         self.assertEqual(subsidy_sats(last), 1)
         alive = amount(Counter({last: 1}), w, W, SUBSIDY_SCALE)
         self.assertEqual(alive, A_0 * 2 ** 70 // W)

@@ -4,7 +4,7 @@
 The fused indexer computes W(h) = W(h-1) + w(h) from each block's own
 header as it connects it. An index resumed from a snapshot -- the
 land-free birth index at 975 433 -- never saw the headers below its
-start, yet a land values runs born at any height, so w(h) must exist
+start, yet a claim values runs born at any height, so w(h) must exist
 for every h. This fills the gap from the node's headers, once:
 
   - nBits is constant inside a retarget period on main, signet and

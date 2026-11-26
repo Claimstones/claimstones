@@ -17,8 +17,8 @@ Withdraw: three outputs — the envelope with a POINTER at the wallet's
 own change (output 1), the change, the destination's sats (output 2).
 The envelope is mandatory: without one, the default rule would sweep
 every settled orchid to the destination. What the envelope cannot
-cover: latent value rides the sats themselves, so when the selected
-coins still carry unclaimed value the wallet must ask "claim first?"
+cover: unclaimed orchids ride the sats themselves, so when the selected
+coins still carry unclaimed orchids the wallet must ask "claim first?"
 before anything is signed — the caller gets `latent_sats` for exactly
 that question.
 
@@ -77,7 +77,7 @@ class WithdrawPlan:
     summary: WithdrawSummary
     destination: str
     destination_script: bytes
-    latent_sats: int            # unclaimed value riding the selected coins
+    latent_sats: int            # unclaimed sats riding the selected coins
 
 
 def _address_script(address: str, network: str | None) -> bytes:
@@ -243,8 +243,8 @@ def plan_withdraw(key: WalletKey, rpc: IndexerRpc, destination: str,
             f"{_DUST[script_type(dest_script)]}-sat dust bound")
     coins = {f"{u['txid']}:{u['vout']}": u for u in _wallet_coins(key, rpc)}
 
-    # Already-claimed coins first, largest first: latent value rides the
-    # sats, so coins still carrying it are the last resort (and trigger
+    # Already-claimed coins first, largest first: unclaimed orchids ride the
+    # sats, so coins still carrying them are the last resort (and trigger
     # the "claim first?" question).
     order = sorted(coins, key=lambda op: (coins[op]["latent_sats"] > 0,
                                           -coins[op]["sats"]))

@@ -1,4 +1,4 @@
-"""Claim and collect via external PSBT: the harvest, from the wallet.
+"""Claim and collect via external PSBT, from the wallet.
 
 The wallet-policy.md flow for coins the wallet holds no keys for: name
 the one address holding the bitcoin, the wallet builds the

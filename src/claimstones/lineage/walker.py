@@ -48,7 +48,7 @@ DUST_SEEDS = 1                      # default walk cutoff; NOT consensus
                                     # since 2026-10-25. The protocol values
                                     # every run (docs/spec/land.md
                                     # §Valuation sequence), which is dust=0;
-                                    # a positive value under-mints to save
+                                    # a positive value under-counts to save
                                     # walk time and is the verifier's choice
 SUBSIDY_SCALE = 883_562_550_452_072_936_642_907_668_473_515_000_000_000
                                     # L: the lcm of all 33 nonzero
@@ -92,7 +92,7 @@ def subsidy_sats(height: int) -> int:
     """Block subsidy in sats: 50 BTC halved every 210,000 blocks."""
     halvings = height // HALVING_INTERVAL
     if halvings >= 33:
-        return 0            # 5e9 >> 33 == 0: nothing is minted from
+        return 0            # 5e9 >> 33 == 0: no sats are created from
                             # height 6 930 000 on, so nothing born
                             # there needs valuing
     return 5_000_000_000 >> halvings
@@ -621,8 +621,8 @@ def work_scaled(birth: Counter, table: WorkTable) -> int:
         s = subsidy_sats(height)
         if s == 0:
             # A block from halving 33 on (height 6 930 000, about 2140)
-            # mints no sats, so its work has no carrier and no land can
-            # claim it. Deliberate, not an oversight: constants.md
+            # creates no sats, so its work has no carrier and no claim can
+            # reach it. Deliberate, not an oversight: constants.md
             # §After the last halving, decided 2026-10-25. Unreachable
             # for another century; kept so the domain of N is total.
             continue
@@ -740,7 +740,7 @@ class LineageWalker:
         self.cached_hits = 0
         self.unresolved = 0
         self.unresolved_ub = 0
-        self.landed_sats = 0    # sats of ranges that stop at an earlier land
+        self.landed_sats = 0    # sats of ranges that stop at an earlier claim
         root = Frame("out", txid, vout, 0, value_sats, None)
         stack = [root]
         while stack:

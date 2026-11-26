@@ -60,8 +60,8 @@ MAGIC = bytes([OP_RETURN, OP_PUSHNUM_15])
 # an annotation on the landed output: BirthIndexer._place cuts the input run
 # stream positionally across the outputs, so a PLAIN run enters the stream of
 # every later spend and travels forward with the sats. It cannot be subtracted
-# out afterwards, nor recovered by overlaying a list of lands without replaying
-# the whole forward walk. So once the first land is applied there is no
+# out afterwards, nor recovered by overlaying a list of claims without replaying
+# the whole forward walk. So once the first claim is applied there is no
 # land-free index except a rebuild from genesis -- days, even as a fastbuild --
 # whereas a copy stopped cleanly just below activation turns that into a replay
 # of only the blocks since. The window for taking it closes the moment the
@@ -75,7 +75,7 @@ def activation_height(chain: str = "main") -> int | None:
 
     Mainnet is ACTIVATION_HEIGHT above (980 000). Test chains
     are active from height 1 (decided 2026-11-11): a test network
-    exists to exercise the protocol, and a land that cannot count tests
+    exists to exercise the protocol, and a claim that cannot count tests
     nothing. Height 1, not 0 -- a genesis coinbase is unspendable on
     every chain, and 0 is reserved as the explicit "active since
     genesis" spelling should mainnet ever want it."""
@@ -228,7 +228,7 @@ class Cenotaph:
     """A flawed envelope: all input balances burn.
 
     `land` is True when a well-formed LAND tag was present, in which
-    case the inputs' latent value is landed and burned as well
+    case the inputs' unclaimed orchids land and burn as well
     (land.md, Cenotaph interaction).
     """
 
@@ -501,7 +501,7 @@ def _push_bytes(data: bytes) -> bytes:
 # ---------------------------------------------------------------------------
 
 def land_script(pointer: Optional[int] = None) -> bytes:
-    """Envelope for a land: LAND, optional POINTER, no edicts.
+    """Envelope for a claim: LAND, optional POINTER, no edicts.
 
     Landed seeds go to the pointer output, else the first non-OP_RETURN
     output (the default rule).
@@ -517,8 +517,8 @@ def send_script(
     """Envelope for a transfer of orchids.
 
     transfers: (amount_in_seeds, output_index) pairs. change: pointer for
-    the unallocated remainder. land: also land the inputs' latent value
-    (auto-land in a sponsored send).
+    the unallocated remainder. land: also claim the inputs' unclaimed orchids
+    (auto-claim in a sponsored send).
     """
     edicts = [Edict(ORCHID, amount, output) for amount, output in transfers]
     return encipher(Envelope(edicts=edicts, pointer=change, land=land))

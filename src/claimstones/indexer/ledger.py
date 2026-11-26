@@ -6,7 +6,7 @@ Nothing here touches a store or a node. The caller -- BirthIndexer._place
 the deciphered artifact, the pot of input balances, W(c) and a lookup
 for w(h); it gets back the landed amount, the seeds per output and what
 burned. That is what makes the two halves one pass: the stream the birth
-half is about to cut across the outputs is the stream a land values.
+half is about to cut across the outputs is the stream a claim values.
 
     land_amount(stream, chainwork, work_of)   land.md §Valuation sequence
     allocate(outputs, artifact, pot)          envelope.md §Edicts and allocation
@@ -61,8 +61,8 @@ def stream_work(stream: Sequence[Run], work_of: WorkOf) -> int:
 
 
 def land_amount(stream: Sequence[Run], chainwork: int, work_of: WorkOf) -> int:
-    """Seeds landed by a land of `stream` in a block with cumulative
-    chainwork `chainwork` (W(c)); 0 when the land is void.
+    """Seeds landed by a claim of `stream` in a block with cumulative
+    chainwork `chainwork` (W(c)); 0 when the claim is void.
 
         amount = (A_0 * N) div (W(c) * L)
 

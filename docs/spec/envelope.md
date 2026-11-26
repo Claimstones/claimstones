@@ -19,7 +19,7 @@ Replaces `docs/archive/l3r-claim-protocol.md` §1–§4 and §6–§7 for releas
 | LAND | 28 | even | one value, must be 0 | yes |
 | NOP | 127 | odd | any | ignored |
 
-Tag numbers and the LAND value form were confirmed 2026-10-09 (spec freeze review). LAND keeps a mandatory value rather than a value-less form: the tag/value pairing stays verbatim runes machinery, and a future LAND variant with a nonzero value fails loudly (cenotaph) on v1 indexers. The codec (`src/claimstones/protocol/codec.py`, 2026-09-17) implements them: LIFT 26, LAND 28 carrying one value that must be 0 (any other value → cenotaph without land; a duplicate LAND → cenotaph with land), one POINTER (a second → cenotaph).
+Tag numbers and the LAND value form were confirmed 2026-10-09 (spec freeze review). LAND keeps a mandatory value rather than a value-less form: the tag/value pairing stays verbatim runes machinery, and a future LAND variant with a nonzero value fails loudly (cenotaph) on v1 indexers. The codec (`src/claimstones/protocol/codec.py`, 2026-09-17) implements them: LIFT 26, LAND 28 carrying one value that must be 0 (any other value → cenotaph without LAND; a duplicate LAND → cenotaph with LAND), one POINTER (a second → cenotaph).
 
 Unrecognized even tag → cenotaph; unrecognized odd tag → ignored. RULE (6), PARAMS (8) and CLAIM (24) from the older draft are **not** part of v1 and count as unrecognized even tags (cenotaph).
 
@@ -35,8 +35,8 @@ A transaction with no envelope but with orchid balance on its inputs is a valid 
 
 ## Failure tiers
 
-- **Cenotaph** (decode-level flaw, unrecognized even tag, LIFT present): all input balances burn. If the envelope also carries LAND, the inputs' latent value is landed and burned (`land.md` §Cenotaph interaction).
-- **Void** (semantic failure: unknown asset ID in an edict, land of inputs with zero latent value): the instruction is skipped; the rest of the transaction executes normally.
+- **Cenotaph** (decode-level flaw, unrecognized even tag, LIFT present): all input balances burn. If the envelope also carries LAND, the inputs' unclaimed orchids land and burn (`land.md` §Cenotaph interaction).
+- **Void** (semantic failure: unknown asset ID in an edict, a claim of inputs with no unclaimed orchids): the instruction is skipped; the rest of the transaction executes normally.
 
 ## Test vectors
 

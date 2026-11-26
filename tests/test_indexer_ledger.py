@@ -4,7 +4,7 @@ step 4 of the ledger build; docs/spec/indexer.md §Determinism, §Work,
 
 Hand-built blocks carry regtest's nBits, so w(h) = 2 for every block and
 W(c) = 2 (c + 1). Landing the whole 50 BTC coinbase of block 0 in block c
-therefore mints A_0 * 2 / (2 (c + 1)) = A_0 / (c + 1) seeds exactly:
+therefore lands A_0 * 2 / (2 (c + 1)) = A_0 / (c + 1) seeds exactly:
 A_0 / 2 in block 1, A_0 / 3 in block 2. Vector 14 (reorg: the land
 moves one block, the amount is recomputed, state equals a fresh sync) is
 here at the indexer level; the regtest end-to-end repeats it against a

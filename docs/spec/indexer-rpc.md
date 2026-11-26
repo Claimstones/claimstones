@@ -14,7 +14,7 @@ A wallet without its own Bitcoin node uses this API for its view — discovery, 
 - **Auth**: on start the server writes `rpc.cookie` beside the database — `__cookie__:<64 hex>`, bitcoind's convention — and requires it as HTTP Basic credentials (`--no-auth` for localhost experiments). The cookie is rotated on every start.
 - **Port**: one digit off the node it serves beside, per network as Core does (decided 2026-11-12) — main **7332** (node 8332), testnet **17332** (18332), signet **37332** (38332), regtest **17443** (18443). The default is the mainnet port; the others are `--port`.
 - The host node (`--node-url` + its auth) is optional: without it, `getlatent`, `sendrawtransaction` and `getfeerate` answer with an error naming the missing piece and the pure index lookups still serve.
-- Seeds and sats travel as JSON numbers: a single land is bounded by `A_0` = 3e13 seeds and sats by 2.1e15, both inside JSON's exact-integer range (2^53). Chainwork is hex. txids are in display order (reversed), as everywhere in Core's RPC.
+- Seeds and sats travel as JSON numbers: a single claim is bounded by `A_0` = 3e13 seeds and sats by 2.1e15, both inside JSON's exact-integer range (2^53). Chainwork is hex. txids are in display order (reversed), as everywhere in Core's RPC.
 
 ## Methods
 
@@ -66,7 +66,7 @@ A default fee rate (added 2026-11-16, for the land builder and any wallet): the 
 {"fee_rate": 3, "height": 981234, "blocks": 3, "block_medians": [5, 1, 3]}
 ```
 
-Backward-looking on purpose: it needs no mempool (the host node may run `blocksonly`) and no transaction index, only recent blocks, which a pruned node keeps. It lags a sudden fee rise; a land is then raised by CPFP, never RBF (`wallet-policy.md`). Error `-10` without a node, `-32602` for `blocks` outside 1..10.
+Backward-looking on purpose: it needs no mempool (the host node may run `blocksonly`) and no transaction index, only recent blocks, which a pruned node keeps. It lags a sudden fee rise; a claim is then raised by CPFP, never RBF (`wallet-policy.md`). Error `-10` without a node, `-32602` for `blocks` outside 1..10.
 
 ### `help`
 
@@ -81,7 +81,7 @@ Settled orchid balances from the ledger half (`indexer.md`), served since 2026-1
  "utxos": [{"txid": "...", "vout": 1, "seeds": 12294}]}
 ```
 
-`getindexinfo` carries the ledger's counters beside the birth half's: `lands`, `landed` (seeds landed in the orchid ledger; `minted` before 2026-11-25), `burned`, and `ledger_height` — the height from which balances exist, `null` until the fused daemon has run on the index. `time` is the header time (unix) of the block the index is at — asked of the node by the hash the daemon recorded, so it is the index's own tip even while the node is ahead — and `null` on a server without a node; a client shows it as the age of its view, which flags a stalled node, daemon or chain.
+`getindexinfo` carries the ledger's counters beside the birth half's: `lands` (claims counted), `landed` (seeds landed in the orchid ledger; `minted` before 2026-11-25), `burned`, and `ledger_height` — the height from which balances exist, `null` until the fused daemon has run on the index. `time` is the header time (unix) of the block the index is at — asked of the node by the hash the daemon recorded, so it is the index's own tip even while the node is ahead — and `null` on a server without a node; a client shows it as the age of its view, which flags a stalled node, daemon or chain.
 
 ## Planned, not yet served
 - **Confirmation status** for a relayed transaction (`gettxstatus`): mempool / confirming / settled / dropped, as the node sees it. **[decide]** whether a pure passthrough of the node's `getrawtransaction` verbosity is enough.
