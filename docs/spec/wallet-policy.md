@@ -2,7 +2,7 @@
 
 ## Principles
 
-Claimstones is the core stack; wallets are front ends, and any number of them can exist. This spec states what every wallet must be able to do and the rules that keep it safe — not how one looks, stores its secret at rest, or authenticates its user; those belong to each front end. The reference wallet for this repository is a CLI (planned, an upcoming commit). Safety before features: the wallet never emits a near-cenotaph and never signs what it has not decoded.
+Claimstones is the core stack; wallets are front ends, and any number of them can exist. This spec states what every wallet must be able to do and the rules that keep it safe — not how one looks, stores its secret at rest, or authenticates its user; those belong to each front end. The reference wallet for this repository is a CLI, `claimstones-wallet`. Safety before features: the wallet never emits a near-cenotaph and never signs what it has not decoded.
 
 ## What a wallet can do
 
@@ -40,7 +40,7 @@ The wallet builds every transaction itself from these templates (decided 2026-11
 
 **Send**: exactly three outputs. Output 0 the envelope with exactly one edict — asset 0:0, the amount, to output 2 — and no LAND; output 1 the wallet's own change, all input sats minus `carrier_sats` and the miner fee (the orchid remainder lands here by the default rule; a POINTER to 1 is permitted and redundant); output 2 the recipient, exactly `carrier_sats`. Inputs are the wallet's own: settled orchid UTXOs covering the amount, plus UTXOs for the fee as §Coin control orders them.
 
-**Claim and collect** (external coins — not built):
+**Claim and collect** (external coins):
 
 | output | pays | sats | orchids |
 |---|---|---|---|
@@ -48,7 +48,7 @@ The wallet builds every transaction itself from these templates (decided 2026-11
 | 1 | the orchid wallet | `carrier_sats` | all of them: the inputs' balance plus the landed amount, by the default rule |
 | 2 | `return_to`, the address of one of the inputs (default the largest) | input sats − carrier − miner fee | none |
 
-LAND is always present: sats claimed before add nothing (`land.md`), so the one template covers claim only, collect only and both. The carrier comes first so the default rule puts every orchid on output 1 without a pointer, and keeps doing so if a fee bump removes output 2. The PSBT carries per input `witness_utxo`, `non_witness_utxo` for non-taproot inputs (hardware signers want the previous transaction for segwit v0 and legacy), and the key origin (`bip32_derivation`, `tap_bip32_derivation`) when the input descriptor gave one as `[fingerprint/path]` — a bare xpub has no origin and a hardware signer cannot find its key from it. There is no expiry: the landed amount is fixed at the inclusion block, so the PSBT fails only if an input is spent first. The owner sets the fee rate and can raise it afterwards in their own wallet by CPFP spending output 2, which carries no orchids: the parent is never touched, so this is safe in any wallet. RBF is not (signet, 2026-11-13): a wallet that did not build the transaction does not bump it, it rebuilds it from the payments it recognises — Sparrow's "Increase fee" dropped the 0-sat OP_RETURN, added an input and a change output, and reordered; no envelope, no LAND, the 330 sats arrived as plain bitcoin and the unclaimed orchids stayed on the return coin. Nothing is lost but the fee, and nothing warned, because the signing wallet broadcast. The exported-PSBT guidance is therefore CPFP only, with the RBF warning spelled out (§Wording). **[decide]** inputs from several source addresses: one return output, or one transaction per source address. Collecting (as opposed to claiming) waits on orchid balances per outpoint from the index (`indexer-rpc.md` §Planned); until then the external form can only claim.
+LAND is always present: sats claimed before add nothing (`land.md`), so the one template covers claim only, collect only and both. The carrier comes first so the default rule puts every orchid on output 1 without a pointer, and keeps doing so if a fee bump removes output 2. The PSBT carries per input `witness_utxo`, `non_witness_utxo` for non-taproot inputs (hardware signers want the previous transaction for segwit v0 and legacy), and the key origin (`bip32_derivation`, `tap_bip32_derivation`) when the input descriptor gave one as `[fingerprint/path]` — a bare xpub has no origin and a hardware signer cannot find its key from it. There is no expiry: the landed amount is fixed at the inclusion block, so the PSBT fails only if an input is spent first. The owner sets the fee rate and can raise it afterwards in their own wallet by CPFP spending output 2, which carries no orchids: the parent is never touched, so this is safe in any wallet. RBF is not (signet, 2026-11-13): a wallet that did not build the transaction does not bump it, it rebuilds it from the payments it recognises — Sparrow's "Increase fee" dropped the 0-sat OP_RETURN, added an input and a change output, and reordered; no envelope, no LAND, the 330 sats arrived as plain bitcoin and the unclaimed orchids stayed on the return coin. Nothing is lost but the fee, and nothing warned, because the signing wallet broadcast. The exported-PSBT guidance is therefore CPFP only, with the RBF warning spelled out (§Wording). **[decide]** inputs from several source addresses: one return output, or one transaction per source address. Orchid balances per outpoint are served by the index (`getorchidbalance`, `indexer-rpc.md`); the template moves any balance already on the inputs to output 1 with the landed amount, by the default rule.
 
 **Withdraw**: §What a wallet can do — the mandatory POINTER envelope at the wallet's own change output; only plain bitcoin leaves.
 
@@ -62,13 +62,13 @@ Every UTXO has a state: **tokens** (orchid balance), **latent** (unlanded work),
 
 ## Envelope scan before signing
 
-Decode every envelope in any PSBT before signing — including the wallet's own builds, where the scan is the self-check that the builder produced the template it meant to. Refuse to sign on any unexpected tag, edict, pointer, or sat outflow. This is the multi-party footgun defence and is not optional. A failed check means refusal — never a signed transaction after a failed decode. A failed check means refusal — never a signed transaction after a failed decode. The checks run when the PSBT arrives and again right before signing.
+Decode every envelope in any PSBT before signing — including the wallet's own builds, where the scan is the self-check that the builder produced the template it meant to. Refuse to sign on any unexpected tag, edict, pointer, or sat outflow. This is the multi-party footgun defence and is not optional. A failed check means refusal — never a signed transaction after a failed decode. The checks run when the PSBT arrives and again right before signing.
 
 For the claim (`verifyLand`): exactly two outputs; output 0 the only OP_RETURN, decoding to LAND alone (no flaw, no LIFT, no edicts, no unknown even tag, pointer absent or 1); output 1 pays the wallet's own script; every input has a `witness_utxo` paying the wallet's own script and is named in the summary; input sats, change and fee equal the summary; the fee is at most a fifth of the input sats.
 
 For the send (`verifySend`, rewritten 2026-11-03 for the wallet-built template): exactly three outputs; output 0 the only OP_RETURN, decoding without flaw, no LAND, no LIFT, pointer absent or 1; exactly one edict, for asset 0:0, paying exactly the typed amount to output 2; output 1 pays the wallet's own script all input sats minus `carrier_sats` and the miner fee (no other sat outflow); output 2 pays the recipient script the wallet derived from the address the user typed, exactly `carrier_sats`; every input is the wallet's own, with a `witness_utxo`, and the inputs' settled orchids cover the amount.
 
-For the external claim and collect (2026-10-30, `verifyCollect`, not built; template in §Transaction templates): exactly three outputs; output 0 the only OP_RETURN, decoding to LAND alone as for the claim; output 1 pays the wallet's own script exactly `carrier_sats`; output 2 pays the script of one of the inputs; no input pays the wallet's own script, and every input is named in the summary with its `witness_utxo`; input sats, return sats and fee equal the summary; the fee is at most a fifth of the input sats. The wallet signs nothing here. The check runs when the wallet builds the PSBT; the signing wallet broadcasts and nothing comes back (decided 2026-11-13: a wallet that can sign a PSBT can broadcast it, and a bring-it-back step was a second file nobody would carry). What protects the user is the plan shown before signing and the fee guidance with it (§Wording).
+For the external claim and collect (2026-10-30, `verifyCollect`; template in §Transaction templates): exactly three outputs; output 0 the only OP_RETURN, decoding to LAND alone as for the claim; output 1 pays the wallet's own script exactly `carrier_sats`; output 2 pays the script of one of the inputs; no input pays the wallet's own script, and every input is named in the summary with its `witness_utxo`; input sats, return sats and fee equal the summary; the fee is at most a fifth of the input sats. The wallet signs nothing here. The check runs when the wallet builds the PSBT; the signing wallet broadcasts and nothing comes back (decided 2026-11-13: a wallet that can sign a PSBT can broadcast it, and a bring-it-back step was a second file nobody would carry). What protects the user is the plan shown before signing and the fee guidance with it (§Wording).
 
 ## Wording
 
@@ -78,8 +78,10 @@ Sats a walk left unresolved (2026-09-21): "not claimable" when the consensus wal
 
 ## Mainnet safety checklist
 
-- Regtest end to end: check, claim in-app, send, receive, external claim and collect, withdraw, reorg during a claim.
-- Sparrow: import a claim-and-collect PSBT, sign, broadcast; CPFP the returned coin and the parent confirms unchanged. "Increase fee" is known to rebuild (signet 2026-11-13, envelope dropped): the guidance warns against it, and the wallet must show that warning with every exported PSBT.
+Green 2026-11-27, every item below.
+
+- Regtest end to end: check, claim in-app, send, receive, external claim and collect, withdraw, reorg during a claim — done (`tests/test_regtest_e2e.py`).
+- Sparrow: import a claim-and-collect PSBT, sign, broadcast; CPFP the returned coin and the parent confirms unchanged. "Increase fee" is known to rebuild (signet 2026-11-13, envelope dropped): the guidance warns against it, and the wallet must show that warning with every exported PSBT — done (signet 2026-11-13; the CLI prints the warning with every export).
 - Signet trial with real fee bumps — done 2026-11-13 (`ops/signet`): claim, Sparrow collect, CPFP; the RBF finding above.
-- Codec test vectors green; strict construction (no cenotaph ever emitted) fuzzed.
-- Restore from the wallet code alone tested.
+- Codec test vectors green; strict construction (no cenotaph ever emitted) fuzzed — done (`tests/test_template_fuzz.py`).
+- Restore from the wallet code alone tested — done (`tests/test_regtest_e2e.py`, restore subtest).
