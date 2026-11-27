@@ -299,6 +299,37 @@ class RegtestEndToEnd(unittest.TestCase):
             self.assertEqual(info["burned"], 0)
             self.assertEqual(info["landed"], claimed + collected)
 
+        with self.subTest("restore from the wallet code alone"):
+            # wallet-policy.md §Mainnet safety checklist: the code typed into
+            # the CLI's restore, a fresh folder, nothing else carried over.
+            from unittest import mock
+            from claimstones.wallet import cli
+            from claimstones.wallet.keys import load_wallet
+            before = io.StringIO()
+            do_balance(self.wrpc, self.key, "regtest", before)
+            fresh = tempfile.mkdtemp(prefix="cs-restore-")
+            try:
+                path = os.path.join(fresh, "wallet.txt")
+                with mock.patch("builtins.input", return_value=self.key.code), \
+                     mock.patch.object(cli, "_ask_secret", return_value="restore-test-pw"), \
+                     contextlib.redirect_stdout(io.StringIO()):
+                    restored = cli._restore_wallet(path, "regtest")
+                self.assertIsNotNone(restored)
+                reopened = load_wallet(path, "restore-test-pw")
+                self.assertEqual(reopened.address("regtest"), self.key.address("regtest"))
+                after = io.StringIO()
+                do_balance(self.wrpc, reopened, "regtest", after)
+                self.assertEqual(after.getvalue(), before.getvalue())
+                # and the restored key signs: send 0.50 back to the same wallet
+                out = io.StringIO()
+                rc = do_send(self.wrpc, reopened, "regtest", recipient,
+                             "0.50", 1.0, out, ask=YES)
+                self.assertEqual(rc, 0, out.getvalue())
+                self._mine()
+                self.assertEqual(self._seeds(recipient)["seeds"], 150)
+            finally:
+                shutil.rmtree(fresh, ignore_errors=True)
+
 
 if __name__ == "__main__":
     unittest.main()
