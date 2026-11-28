@@ -45,6 +45,11 @@ CARRIER_SATS = 330
 # Every template input signals RBF (wallet-policy.md).
 SEQUENCE = 0xFFFFFFFD
 
+# The largest transaction nodes relay: Core's MAX_STANDARD_TX_WEIGHT,
+# 400 000 weight units. A template spends every coin it is given, so this
+# is the only bound on their number (spec/land-psbt.md §Refusals).
+MAX_RELAY_VSIZE = 100_000
+
 # Core's dust thresholds at the default 3 sat/vB relay rate, per the
 # script type of the output that would receive the sats.
 _DUST = {"tr": 330, "wpkh": 294, "sh(wpkh)": 540, "pkh": 546}
@@ -157,7 +162,15 @@ def _estimate_fee(kinds: list[str], outputs: list[TxOut], fee_rate: float) -> in
         tx.inputs.append(TxIn(bytes(32), 0, script_sig, SEQUENCE,
                               witness or None))
     tx.outputs = list(outputs)
-    return math.ceil(tx.vsize() * fee_rate)
+    vsize = tx.vsize()
+    if vsize > MAX_RELAY_VSIZE:
+        def spaced(k: int) -> str:
+            return f"{k:,}".replace(",", " ")
+        raise TemplateError(
+            f"too many UTXOs for one transaction: {spaced(len(kinds))} of "
+            f"them make {spaced(vsize)} vB, and nodes relay at most "
+            f"{spaced(MAX_RELAY_VSIZE)} vB")
+    return math.ceil(vsize * fee_rate)
 
 
 def _unsigned_tx(inputs: list[FundingInput], outputs: list[TxOut]) -> Transaction:

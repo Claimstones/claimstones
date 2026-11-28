@@ -16,8 +16,8 @@ something (land.py says why).
     answer    {"psbt": "<base64>",
                "summary": {"inputs", "input_sats", "carrier_sats",
                            "return_sats", "fee_sats", "fee_rate", "seeds",
-                           "height", "utxo_count", "capped",
-                           "orchids_to_coins", "orchids_to_latent_sats"},
+                           "height", "orchids_to_coins",
+                           "orchids_to_latent_sats"},
                "as_of"}
 
 What the builder refuses, beyond what build_collect refuses itself:
@@ -26,9 +26,12 @@ by every indexer), an address of another network, script hex instead of
 an address, the same address on both sides, and legacy funding
 addresses (1.../m.../n...): their signer needs the raw previous
 transactions, which this server cannot fetch from a pruned node without
-a transaction index. Taproot and segwit inputs carry witness_utxo only;
-the signing wallet adds the previous transactions from its own history
-where its signer wants them (land-psbt.md §Answer).
+a transaction index. It spends every coin on the address; past the
+size nodes relay (100 000 vB: about 1 450 segwit or 1 700 taproot
+coins) build_collect refuses.
+Taproot and segwit inputs carry witness_utxo only; the signing wallet
+adds the previous transactions from its own history where its signer
+wants them (land-psbt.md §Answer).
 
 It never sees a key, signs nothing, broadcasts nothing; building a PSBT
 mutates nothing. No auth: the edge's rate limit is the protection, and
@@ -80,8 +83,7 @@ def _address(text, chain: str, what: str) -> bytes:
         raise Refused(f"{what}: {e}") from None
 
 
-def build(rpc: IndexerRpc, request: dict, max_inputs: int = 50,
-          fee_blocks: int = 3) -> dict:
+def build(rpc: IndexerRpc, request: dict, fee_blocks: int = 3) -> dict:
     """One POST /v1/land body -> the answer. Raises Refused (400) or
     Unavailable (502)."""
     if not isinstance(request, dict):
@@ -130,7 +132,7 @@ def build(rpc: IndexerRpc, request: dict, max_inputs: int = 50,
 
         try:
             plan = plan_collect(orchids, address.strip(), rpc, fee_rate,
-                                chain, max_inputs)
+                                chain)
         except TemplateError as e:
             raise Refused(str(e)) from None
         # What the orchid address already holds, for the page's warning:
@@ -158,8 +160,6 @@ def build(rpc: IndexerRpc, request: dict, max_inputs: int = 50,
             "fee_rate": fee_rate,
             "seeds": plan.seeds,
             "height": plan.valued_at_height,
-            "utxo_count": plan.utxo_count,
-            "capped": plan.utxo_count > len(s.inputs),
             "orchids_to_coins": len(held),
             "orchids_to_latent_sats": sum(u.get("latent_sats", 0)
                                           for u in held),
@@ -168,7 +168,7 @@ def build(rpc: IndexerRpc, request: dict, max_inputs: int = 50,
     }
 
 
-def make_handler(rpc: IndexerRpc, max_inputs: int, fee_blocks: int):
+def make_handler(rpc: IndexerRpc, fee_blocks: int):
     class Handler(BaseHTTPRequestHandler):
         protocol_version = "HTTP/1.1"
         server_version = "claimstones-land-builder"
@@ -198,7 +198,7 @@ def make_handler(rpc: IndexerRpc, max_inputs: int, fee_blocks: int):
             except ValueError:
                 return self._send(400, {"error": "expected a JSON object"})
             try:
-                self._send(200, build(rpc, request, max_inputs, fee_blocks))
+                self._send(200, build(rpc, request, fee_blocks))
             except Refused as e:
                 self._send(400, {"error": str(e)})
             except Unavailable as e:
@@ -229,9 +229,6 @@ def main() -> int:
     ap.add_argument("--bind", default="127.0.0.1",
                     help="address to serve on (default %(default)s)")
     ap.add_argument("--port", type=int, default=DEFAULT_PORT)
-    ap.add_argument("--max-inputs", type=int, default=50,
-                    help="coins spent per PSBT, the largest first "
-                         "(default %(default)s)")
     ap.add_argument("--fee-blocks", type=int, default=3,
                     help="blocks the default fee rate is the median of "
                          "(default %(default)s)")
@@ -239,10 +236,9 @@ def main() -> int:
 
     rpc = IndexerRpc(args.rpc_url, cookie_path=args.rpc_cookie)
     srv = ThreadingHTTPServer((args.bind, args.port),
-                              make_handler(rpc, args.max_inputs,
-                                           args.fee_blocks))
+                              make_handler(rpc, args.fee_blocks))
     print(f"land builder: {args.rpc_url} on http://{args.bind}:{args.port}"
-          f" (max {args.max_inputs} inputs, fee = median of "
+          f" (fee = median of "
           f"{args.fee_blocks} blocks)", flush=True)
     try:
         srv.serve_forever()

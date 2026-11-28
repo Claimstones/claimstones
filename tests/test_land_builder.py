@@ -1,5 +1,5 @@
 """The land builder (indexer/land_builder.py, Spec 8): the refusals it
-adds in front of plan_collect, the answer's shape, the input cap, and
+adds in front of plan_collect, the answer's shape, no input cap, and
 the HTTP surface. The indexer is a fake; the template and its
 verification are the wallet's own code, checked again here on the
 returned PSBT."""
@@ -93,7 +93,6 @@ class BuildTests(unittest.TestCase):
         self.assertEqual(s["input_sats"],
                          s["carrier_sats"] + s["return_sats"] + s["fee_sats"])
         self.assertEqual(s["seeds"], 6_000)
-        self.assertEqual((s["utxo_count"], s["capped"]), (2, False))
         self.assertEqual((s["orchids_to_coins"],
                           s["orchids_to_latent_sats"]), (0, 0))
         psbt = Psbt.from_base64(out["psbt"])
@@ -121,12 +120,21 @@ class BuildTests(unittest.TestCase):
         self.assertEqual(rpc.fee_calls, 0)
         self.assertEqual(out["summary"]["fee_rate"], 7)
 
-    def test_cap_spends_the_largest_and_values_only_those(self):
-        rpc = rpc_with(utxo(1, 10_000), utxo(2, 90_000), utxo(3, 50_000))
-        s = build(rpc, req(), max_inputs=2)["summary"]
-        self.assertEqual((s["inputs"], s["input_sats"]), (2, 140_000))
-        self.assertEqual((s["utxo_count"], s["capped"]), (3, True))
-        self.assertEqual(s["seeds"], 14_000)        # not the 10k coin's
+    def test_spends_every_coin(self):
+        # no input cap (was 50 until 2026-11-28): 60 coins, all spent
+        coins = [utxo(n, 10_000) for n in range(1, 61)]
+        s = build(rpc_with(*coins), req())["summary"]
+        self.assertEqual((s["inputs"], s["input_sats"]), (60, 600_000))
+        self.assertEqual(s["seeds"], 60_000)
+        self.assertNotIn("capped", s)
+        self.assertNotIn("utxo_count", s)
+
+    def test_above_relay_size_refused_before_valuing(self):
+        coins = [utxo(n, 100_000) for n in range(1, 2001)]
+        rpc = rpc_with(*coins)
+        rpc.getlatent = None            # must not be reached
+        with self.assertRaisesRegex(Refused, "too many UTXOs"):
+            build(rpc, req())
 
     def test_refusals(self):
         coin = utxo(1, 50_000)
@@ -158,7 +166,7 @@ class HttpTests(unittest.TestCase):
     def setUpClass(cls):
         rpc = rpc_with(utxo(1, 50_000))
         cls.srv = ThreadingHTTPServer(("127.0.0.1", 0),
-                                      make_handler(rpc, 50, 3))
+                                      make_handler(rpc, 3))
         threading.Thread(target=cls.srv.serve_forever, daemon=True).start()
         cls.url = f"http://127.0.0.1:{cls.srv.server_address[1]}"
 
@@ -194,7 +202,7 @@ class HttpTests(unittest.TestCase):
     def test_backend_away_says_no_more(self):
         srv = ThreadingHTTPServer(
             ("127.0.0.1", 0),
-            make_handler(rpc_with(utxo(1, 50_000), unreachable=True), 50, 3))
+            make_handler(rpc_with(utxo(1, 50_000), unreachable=True), 3))
         threading.Thread(target=srv.serve_forever, daemon=True).start()
         try:
             r = urllib.request.Request(

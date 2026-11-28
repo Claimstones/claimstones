@@ -113,6 +113,35 @@ class ClaimTests(unittest.TestCase):
             verify_land(psbt.tx, prevouts, WALLET_SCRIPT, wrong)
 
 
+def many(script: bytes, n: int, value: int = 100_000) -> list[FundingInput]:
+    """n distinct coins on one script (coin() takes a one-byte salt)."""
+    return [FundingInput(i.to_bytes(32, "big"), 0, TxOut(value, script))
+            for i in range(1, n + 1)]
+
+
+class SizeTests(unittest.TestCase):
+    """No input cap: every coin is spent, up to the size nodes relay
+    (100 000 vB, Core's MAX_STANDARD_TX_WEIGHT). Above it, refuse in
+    plain words instead of building a transaction nobody relays."""
+
+    def test_collect_spends_a_thousand_coins(self):
+        d = derived("tr(KEY)")
+        psbt, summary = build_collect(many(d.script, 1000), WALLET_SCRIPT,
+                                      d.script, 2)
+        self.assertEqual(len(psbt.tx.inputs), 1000)
+        self.assertEqual(summary.input_sats, 100_000_000)
+
+    def test_collect_above_relay_size_refused(self):
+        d = derived("wpkh(KEY)")
+        with self.assertRaisesRegex(TemplateError, "too many UTXOs.*100 000 vB"):
+            build_collect(many(d.script, 2000), WALLET_SCRIPT, d.script, 2)
+
+    def test_claim_above_relay_size_refused(self):
+        with self.assertRaisesRegex(TemplateError, "too many UTXOs.*100 000 vB"):
+            build_claim(many(WALLET_SCRIPT, 2000), WALLET_SCRIPT,
+                        WALLET_INTERNAL, 2)
+
+
 class CollectTests(unittest.TestCase):
     ORCHIDS = WALLET_SCRIPT
 

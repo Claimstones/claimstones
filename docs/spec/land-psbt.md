@@ -54,7 +54,6 @@ at most a fifth of the input sats.
  "summary": {"inputs": 3, "input_sats": 150000, "carrier_sats": 330,
              "return_sats": 148870, "fee_sats": 800, "fee_rate": 4,
              "seeds": 101, "height": 981234,
-             "utxo_count": 3, "capped": false,
              "orchids_to_coins": 0, "orchids_to_latent_sats": 0},
  "as_of": 1794834651}
 ```
@@ -70,7 +69,10 @@ wants them (hardware signers insist for segwit v0 since the 2020
 fee-attack fix; Core's `walletprocesspsbt` fills them in, Sparrow is
 expected to: confirmed or refuted by the signing matrix, test round
 4). Taproot needs nothing more, its signature commits to every input
-amount. `seeds` counts the inputs actually spent. `orchids_to_coins` and
+amount. The transaction spends every UTXO on the funding address
+(no input cap since 2026-11-28: a cap left orchids unclaimed and needed
+explaining), so `inputs` is the address's UTXO count and `seeds` covers
+all of them. `orchids_to_coins` and
 `orchids_to_latent_sats` are what the orchid address already holds:
 unclaimed bitcoin there means a wallet that spends from it, or an
 address that is not the claimer's (the signet trial sent a claim to
@@ -89,9 +91,11 @@ the envelope.
 - Tip below `ACTIVATION_HEIGHT`, or `ACTIVATION_HEIGHT` unset: refuse.
   An envelope below activation is ignored by every indexer; building
   one would waste the signer's sats.
-- More UTXOs on the address than `--max-inputs` (default 50): build
-  from the largest `--max-inputs` and say so in the summary
-  (`utxo_count` above `inputs`, `capped`).
+- More UTXOs than one transaction can carry: a transaction above
+  100 000 vB (Core's `MAX_STANDARD_TX_WEIGHT`) is not relayed, so the
+  template refuses past it — about 1 450 segwit or 1 700 taproot UTXOs.
+  The check is in the shared template code (`wallet/land.py`), so the
+  CLI wallet refuses the same way, and it runs before any valuation.
 - A legacy funding address (`1…`, `m…`, `n…`): its signer always needs
   the previous transactions, which the service cannot supply (above).
   The message says to move the bitcoin to a segwit or taproot address

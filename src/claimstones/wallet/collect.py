@@ -39,15 +39,14 @@ class CollectPlan:
     latent_sats: int
     seeds: int | None           # est. orchids to be landed; None without a node
     valued_at_height: int | None
-    utxo_count: int = 0         # coins on the address; above len(inputs) = capped
 
 
 def plan_collect(orchids_script: bytes, funding_address: str,
                  rpc: IndexerRpc, fee_rate: float,
-                 network: str | None = "main",
-                 max_inputs: int | None = None) -> CollectPlan:
-    """max_inputs caps the coins spent (spec/land-psbt.md --max-inputs):
-    the largest first, the rest stay where they are for another land."""
+                 network: str | None = "main") -> CollectPlan:
+    """Spends every coin on the address: no cap, so nothing is left
+    unclaimed. Past the size nodes relay, build_collect refuses
+    (spec/land-psbt.md §Refusals), before any valuation is asked."""
     try:
         branches = parse_line(funding_address, network)
     except CheckInputError as e:
@@ -62,9 +61,6 @@ def plan_collect(orchids_script: bytes, funding_address: str,
     utxos = rpc.getaddressutxos(script_hex)
     if not utxos:
         raise TemplateError(f"no UTXOs on {funding_address}")
-    utxo_count = len(utxos)
-    if max_inputs is not None and utxo_count > max_inputs:
-        utxos = sorted(utxos, key=lambda u: -u["sats"])[:max_inputs]
     inputs = [FundingInput(bytes.fromhex(u["txid"])[::-1], u["vout"],
                            TxOut(u["sats"], derived.script))
               for u in utxos]
@@ -83,5 +79,4 @@ def plan_collect(orchids_script: bytes, funding_address: str,
         if e.code != NO_NODE:
             raise
     return CollectPlan(psbt, summary, funding_address, orchids_script,
-                       sum(u["latent_sats"] for u in utxos), seeds, valued_at,
-                       utxo_count)
+                       sum(u["latent_sats"] for u in utxos), seeds, valued_at)
